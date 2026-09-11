@@ -14,6 +14,8 @@ import WageSummaryView from '@/components/WageSummary';
 import SiteSelector from '@/components/SiteSelector';
 import MetricsRibbon from '@/components/MetricsRibbon';
 import WorkerProfile from '@/components/WorkerProfile';
+import InstallPwaButton from '@/components/InstallPwaButton';
+import NetworkStatus from '@/components/NetworkStatus';
 
 type Tab = 'attendance' | 'workers' | 'wages';
 
@@ -95,7 +97,7 @@ export default function App() {
               {!imgError ? (
                 <img
                   src="/logo.png"
-                  alt="Jaiswal Construction"
+                  alt="Superlabor"
                   className="w-full h-full object-contain rounded-lg"
                   onError={() => setImgError(true)}
                 />
@@ -104,30 +106,33 @@ export default function App() {
               )}
             </div>
             <div className="hidden sm:block">
-              <h1 className="text-slate-900 dark:text-white font-bold text-sm leading-tight">Jaiswal Construction</h1>
-              <p className="text-amber-600 dark:text-amber-400 font-medium text-xs mt-0.5">Workers Management</p>
+              <h1 className="text-slate-900 dark:text-white font-bold text-sm leading-tight">Superlabor</h1>
+              <p className="text-amber-600 dark:text-amber-400 font-medium text-xs mt-0.5">Jaiswal Construction</p>
             </div>
           </div>
 
           <SiteSelector currentSiteId={siteId} onSelectSite={setSiteId} />
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
+            <NetworkStatus />
+            <InstallPwaButton />
             <button
               onClick={toggleTheme}
-              className="p-2.5 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-all active:scale-90"
+              className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-all active:scale-90"
               title={theme === 'dark' ? 'Switch to Light' : 'Switch to Dark'}
             >
               {theme === 'dark' ? (
-                <Sun className="w-5 h-5" />
+                <Sun className="w-4 h-4" />
               ) : (
-                <Moon className="w-5 h-5" />
+                <Moon className="w-4 h-4" />
               )}
             </button>
             <button
               onClick={signOut}
               className="flex items-center gap-1.5 px-3 py-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium"
+              title="Sign Out"
             >
-              <LogOut className="w-4 h-4" /> <span className="hidden sm:inline">Sign Out</span>
+              <LogOut className="w-4 h-4" /> <span className="hidden md:inline">Sign Out</span>
             </button>
           </div>
         </div>
@@ -165,7 +170,7 @@ export default function App() {
       </main>
 
       <footer className="max-w-5xl mx-auto px-4 py-6 text-center text-slate-400 dark:text-slate-600 text-xs">
-        Jaiswal Construction &mdash; Workers Management System
+        Superlabor &mdash; Jaiswal Construction Workers Management System
       </footer>
 
       {profileWorker && (
