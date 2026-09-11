@@ -23,4 +23,5 @@ dist-ssr
 .env
 
 # Bolt AI config
+.bolt/.env
 .bolt/
