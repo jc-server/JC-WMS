@@ -1,0 +1,6 @@
+<!-- SVG fallback generated as 192x192 PWA icon placeholder -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <rect width="192" height="192" fill="#09090b" rx="36"/>
+  <text x="96" y="90" font-family="Arial, sans-serif" font-weight="900" font-size="32" fill="#ffffff" text-anchor="middle" letter-spacing="2">JC</text>
+  <text x="96" y="125" font-family="Arial, sans-serif" font-weight="700" font-size="16" fill="#fbbf24" text-anchor="middle" letter-spacing="3">WMS</text>
+</svg>

@@ -21,7 +21,3 @@ dist-ssr
 *.sln
 *.sw?
 .env
-
-# Bolt AI config
-.bolt/.env
-.bolt/
