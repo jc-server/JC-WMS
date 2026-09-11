@@ -16,6 +16,7 @@ export type DayRecord = {
   status: AttendanceStatus;
   overtimeHours: number;
   amountPaid: number;
+  advanceAmount: number;
   remark: string;
 };
 
@@ -55,6 +56,7 @@ export function useWorkerAttendance(siteId: string | null, workerId: string | nu
             status: data.status as AttendanceStatus,
             overtimeHours: Number(data.overtimeHours ?? 0),
             amountPaid: Number(data.amountPaid ?? 0),
+            advanceAmount: Number(data.advanceAmount ?? 0),
             remark: (data.remark as string) ?? '',
           };
         });
@@ -71,7 +73,7 @@ export function useWorkerAttendance(siteId: string | null, workerId: string | nu
   }, [user, siteId, workerId, monthStr]);
 
   const saveDay = useCallback(
-    async (date: string, status: AttendanceStatus, overtimeHours: number, amountPaid: number, remark: string) => {
+    async (date: string, status: AttendanceStatus, overtimeHours: number, amountPaid: number, advanceAmount: number, remark: string) => {
       if (!user || !siteId || !workerId) return;
       const docId = `${date}_${workerId}`;
       const ref = doc(db, 'users', user.uid, 'sites', siteId, 'attendance', docId);
@@ -81,6 +83,7 @@ export function useWorkerAttendance(siteId: string | null, workerId: string | nu
         status,
         overtimeHours,
         amountPaid,
+        advanceAmount,
         remark,
         updatedAt: Date.now(),
       }, { merge: true });

@@ -4,7 +4,6 @@ import {
 } from 'lucide-react';
 import { useAdvances } from '@/hooks/useAdvances';
 import { useMonthlyAttendance } from '@/hooks/useAttendance';
-import { roundCurrency } from '@/utils/calculations';
 import type { Worker } from '@/hooks/useWorkers';
 
 type Props = {
@@ -20,6 +19,8 @@ type WageSummary = {
   absentDays: number;
   otHours: number;
   grossWages: number;
+  standaloneAdvances: number;
+  attendanceAdvances: number;
   totalAdvances: number;
   dailyPaid: number;
   totalPaid: number;
@@ -51,20 +52,21 @@ export default function WageSummaryView({ workers, siteId, onOpenProfile }: Prop
   const monthAdvances = getAdvancesForMonth(month);
 
   const summaries: WageSummary[] = workers.map((worker) => {
-    const att = monthAtt[worker.id] ?? { present: 0, half: 0, absent: 0, otHours: 0, amountPaid: 0 };
-    const grossWages = roundCurrency(
+    const att = monthAtt[worker.id] ?? { present: 0, half: 0, absent: 0, otHours: 0, amountPaid: 0, advanceAmount: 0 };
+    const grossWages =
       att.present * worker.dailyWage +
       att.half * 0.5 * worker.dailyWage +
-      att.otHours * worker.overtimeHourlyRate
-    );
+      att.otHours * worker.overtimeHourlyRate;
 
-    const totalAdvances = monthAdvances
+    const standaloneAdvances = monthAdvances
       .filter((a) => a.workerId === worker.id)
       .reduce((sum, a) => sum + a.amount, 0);
 
+    const attendanceAdvances = att.advanceAmount || 0;
+    const totalAdvances = standaloneAdvances + attendanceAdvances;
+
     const dailyPaid = att.amountPaid || 0;
-    const totalPaid = roundCurrency(dailyPaid + totalAdvances);
-    const netPayable = roundCurrency(grossWages - totalPaid);
+    const totalPaid = dailyPaid + totalAdvances;
 
     return {
       worker,
@@ -73,26 +75,30 @@ export default function WageSummaryView({ workers, siteId, onOpenProfile }: Prop
       absentDays: att.absent,
       otHours: att.otHours,
       grossWages,
+      standaloneAdvances,
+      attendanceAdvances,
       totalAdvances,
       dailyPaid,
       totalPaid,
-      netPayable,
+      netPayable: grossWages - totalPaid,
     };
   });
 
   const totals = summaries.reduce(
     (acc, s) => {
-      acc.grossWages = roundCurrency(acc.grossWages + s.grossWages);
-      acc.totalAdvances = roundCurrency(acc.totalAdvances + s.totalAdvances);
-      acc.dailyPaid = roundCurrency(acc.dailyPaid + s.dailyPaid);
-      acc.totalPaid = roundCurrency(acc.totalPaid + s.totalPaid);
-      acc.netPayable = roundCurrency(acc.netPayable + s.netPayable);
-      acc.otHours = roundCurrency(acc.otHours + s.otHours);
+      acc.grossWages += s.grossWages;
+      acc.standaloneAdvances += s.standaloneAdvances;
+      acc.attendanceAdvances += s.attendanceAdvances;
+      acc.totalAdvances += s.totalAdvances;
+      acc.dailyPaid += s.dailyPaid;
+      acc.totalPaid += s.totalPaid;
+      acc.netPayable += s.netPayable;
+      acc.otHours += s.otHours;
       acc.presentDays += s.presentDays;
       acc.halfDays += s.halfDays;
       return acc;
     },
-    { grossWages: 0, totalAdvances: 0, dailyPaid: 0, totalPaid: 0, netPayable: 0, otHours: 0, presentDays: 0, halfDays: 0 }
+    { grossWages: 0, standaloneAdvances: 0, attendanceAdvances: 0, totalAdvances: 0, dailyPaid: 0, totalPaid: 0, netPayable: 0, otHours: 0, presentDays: 0, halfDays: 0 }
   );
 
   const loading = attLoading || advLoading;
@@ -102,20 +108,20 @@ export default function WageSummaryView({ workers, siteId, onOpenProfile }: Prop
     const headers = [
       'Worker Name', 'Phone', 'Role', 'Daily Wage', 'OT Rate/hr',
       'Present Days', 'Half Days', 'Absent Days', 'OT Hours',
-      'Gross Wages', 'Daily Paid', 'Ledger Advances', 'Total Paid', 'Net Payable',
+      'Gross Wages', 'Daily Paid', 'Khata Advances', 'Attendance Advances', 'Total Advances', 'Total Paid', 'Net Payable',
     ];
 
     const rows = summaries.map((s) => [
       s.worker.name, s.worker.phone ?? '', s.worker.role,
       s.worker.dailyWage.toFixed(2), s.worker.overtimeHourlyRate.toFixed(2),
       s.presentDays, s.halfDays, s.absentDays, s.otHours.toFixed(2),
-      s.grossWages.toFixed(2), s.dailyPaid.toFixed(2), s.totalAdvances.toFixed(2), s.totalPaid.toFixed(2), s.netPayable.toFixed(2),
+      s.grossWages.toFixed(2), s.dailyPaid.toFixed(2), s.standaloneAdvances.toFixed(2), s.attendanceAdvances.toFixed(2), s.totalAdvances.toFixed(2), s.totalPaid.toFixed(2), s.netPayable.toFixed(2),
     ]);
 
     const totalsRow = [
       'TOTAL', '', '', '', '',
       totals.presentDays, totals.halfDays, '', totals.otHours.toFixed(2),
-      totals.grossWages.toFixed(2), totals.dailyPaid.toFixed(2), totals.totalAdvances.toFixed(2), totals.totalPaid.toFixed(2), totals.netPayable.toFixed(2),
+      totals.grossWages.toFixed(2), totals.dailyPaid.toFixed(2), totals.standaloneAdvances.toFixed(2), totals.attendanceAdvances.toFixed(2), totals.totalAdvances.toFixed(2), totals.totalPaid.toFixed(2), totals.netPayable.toFixed(2),
     ];
 
     const csv = [headers, ...rows, totalsRow]
@@ -162,7 +168,7 @@ export default function WageSummaryView({ workers, siteId, onOpenProfile }: Prop
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <StatCard label="Gross Wages" value={`\u20B9${totals.grossWages.toFixed(0)}`} color="text-blue-600 dark:text-blue-400" bg="bg-blue-50 dark:bg-blue-950/30" />
         <StatCard label="Total Paid" value={`\u20B9${totals.totalPaid.toFixed(0)}`} color="text-slate-900 dark:text-white" bg="bg-slate-100 dark:bg-zinc-800" />
-        <StatCard label="Net Payable" value={`\u20B9${Math.abs(totals.netPayable).toFixed(0)}`} color="text-white" bg={totals.netPayable > 0 ? 'bg-red-500 dark:bg-red-600' : totals.netPayable < 0 ? 'bg-green-500 dark:bg-green-600' : 'bg-slate-200 dark:bg-zinc-700'} />
+        <StatCard label="Net Payable" value={`\u20B9${totals.netPayable.toFixed(0)}`} color="text-white" bg={totals.netPayable > 0 ? 'bg-red-500 dark:bg-red-600' : totals.netPayable < 0 ? 'bg-green-500 dark:bg-green-600' : 'bg-slate-200 dark:bg-zinc-700'} />
         <StatCard label="OT Hours" value={totals.otHours.toFixed(1)} color="text-blue-600 dark:text-blue-400" bg="bg-blue-50 dark:bg-blue-950/30" />
       </div>
 
@@ -258,6 +264,7 @@ export default function WageSummaryView({ workers, siteId, onOpenProfile }: Prop
         <PassbookModal
           worker={ledgerWorker}
           advances={getAdvancesForWorker(ledgerWorker.id)}
+          monthAdvances={monthAdvances.filter((a) => a.workerId === ledgerWorker.id)}
           onClose={() => setLedgerWorker(null)}
         />
       )}
@@ -393,6 +400,7 @@ function PassbookModal({
 }: {
   worker: Worker;
   advances: { id: string; amount: number; date: string; reason: string | null }[];
+  monthAdvances: { id: string; amount: number; date: string; reason: string | null }[];
   onClose: () => void;
 }) {
   const sorted = [...advances].sort((a, b) => b.date.localeCompare(a.date));
@@ -422,7 +430,7 @@ function PassbookModal({
               <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mb-1">Daily Wage</p>
               <p className="text-lg font-bold text-green-600 dark:text-green-400">&#8377;{worker.dailyWage.toFixed(0)}</p>
             </div>
-            <div className="bg-red-50 dark:bg-red-950/40 rounded-xl p-3 text-center">
+            <div className="bg-red-50 dark:bg-red-950/30 rounded-xl p-3 text-center">
               <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mb-1">Total Advances</p>
               <p className="text-lg font-bold text-red-600 dark:text-red-400">&#8377;{totalAdvances.toFixed(0)}</p>
             </div>

@@ -1,0 +1,30 @@
+<!-- SVG data representation of the Jaiswal Construction Logo -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#09090b" rx="96"/>
+  <g transform="translate(40, 40)">
+    <!-- High-rise buildings -->
+    <path d="M220 40 L280 20 L280 320 L220 320 Z" fill="#ffffff" opacity="0.9"/>
+    <path d="M140 100 L200 70 L200 320 L140 320 Z" fill="#ffffff" opacity="0.7"/>
+    <path d="M290 180 L350 150 L350 320 L290 320 Z" fill="#ffffff" opacity="0.8"/>
+    <!-- Windows pattern -->
+    <rect x="235" y="45" width="10" height="20" fill="#09090b"/>
+    <rect x="235" y="75" width="10" height="20" fill="#09090b"/>
+    <rect x="235" y="105" width="10" height="20" fill="#09090b"/>
+    <rect x="235" y="135" width="10" height="20" fill="#09090b"/>
+    <rect x="235" y="165" width="10" height="20" fill="#09090b"/>
+    
+    <rect x="155" y="115" width="10" height="15" fill="#09090b"/>
+    <rect x="155" y="140" width="10" height="15" fill="#09090b"/>
+    <rect x="155" y="165" width="10" height="15" fill="#09090b"/>
+
+    <!-- Houses / Roofs -->
+    <path d="M100 320 L180 260 L260 320 Z" fill="#ffffff"/>
+    <path d="M220 350 L270 310 L320 350 Z" fill="#ffffff"/>
+    <path d="M240 335 L280 300 L320 335 Z" fill="#ffffff"/>
+    <path d="M200 370 L260 330 L320 370 Z" fill="#ffffff"/>
+    
+    <!-- Text -->
+    <text x="210" y="405" font-family="Arial, sans-serif" font-weight="900" font-size="38" fill="#ffffff" text-anchor="middle" letter-spacing="3">JAISWAL</text>
+    <text x="210" y="435" font-family="Arial, sans-serif" font-weight="600" font-size="18" fill="#fbbf24" text-anchor="middle" letter-spacing="6">CONSTRUCTION</text>
+  </g>
+</svg>

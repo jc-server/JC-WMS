@@ -52,7 +52,7 @@ export function useAttendance(siteId: string | null, date: string) {
           date: data.date as string,
           status: data.status as AttendanceStatus,
           overtimeHours: Number(data.overtimeHours ?? 0),
-          amountPaid: Number(data.amountPaid ?? 0),
+          amountPaid: Number(data.amountPaid ?? data.advanceAmount ?? 0),
           remark: (data.remark as string) ?? '',
         };
         if (rec.date === date) {
@@ -191,7 +191,7 @@ export function useMonthlyAttendance(siteId: string | null, monthStr: string) {
           const workerId = data.workerId as string;
           const status = data.status as 'present' | 'half' | 'absent';
           const ot = Number(data.overtimeHours ?? 0);
-          const paid = Number(data.amountPaid ?? 0);
+          const paid = Number(data.amountPaid ?? data.advanceAmount ?? 0);
           if (!map[workerId]) {
             map[workerId] = { present: 0, half: 0, absent: 0, otHours: 0, amountPaid: 0 };
           }

@@ -1,10 +1,8 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import {
-  createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  updateProfile,
   type User as FirebaseUser,
 } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
@@ -12,7 +10,6 @@ import { auth } from '@/lib/firebase';
 type AuthContextType = {
   user: FirebaseUser | null;
   loading: boolean;
-  signUp: (email: string, password: string) => Promise<{ error: string | null }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 };
@@ -25,10 +22,6 @@ function friendlyError(code: string): string {
     case 'auth/wrong-password':
     case 'auth/user-not-found':
       return 'Invalid email or password.';
-    case 'auth/email-already-in-use':
-      return 'An account with this email already exists.';
-    case 'auth/weak-password':
-      return 'Password should be at least 6 characters.';
     case 'auth/invalid-email':
       return 'Please enter a valid email address.';
     case 'auth/network-request-failed':
@@ -50,17 +43,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => unsub();
   }, []);
 
-  const signUp = async (email: string, password: string) => {
-    try {
-      const cred = await createUserWithEmailAndPassword(auth, email, password);
-      await updateProfile(cred.user, { displayName: email.split('@')[0] });
-      return { error: null };
-    } catch (err) {
-      const code = (err as { code?: string }).code ?? '';
-      return { error: friendlyError(code) };
-    }
-  };
-
   const signIn = async (email: string, password: string) => {
     try {
       await signInWithEmailAndPassword(auth, email, password);
@@ -77,7 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, signUp, signIn, signOut: signOutUser }}
+      value={{ user, loading, signIn, signOut: signOutUser }}
     >
       {children}
     </AuthContext.Provider>
