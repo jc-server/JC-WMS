@@ -10,7 +10,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg', 'logo.png', 'pwa-192x192.svg', 'pwa-512x512.svg'],
+      includeAssets: ['favicon.ico', 'favicon.svg', 'favicon-96x96.png', 'apple-touch-icon.png', 'logo.png'],
       manifest: {
         name: 'Superlabor - Jaiswal Construction',
         short_name: 'Superlabor',
@@ -18,27 +18,39 @@ export default defineConfig({
         theme_color: '#18181b',
         background_color: '#09090b',
         display: 'standalone',
-        orientation: 'portrait',
+        orientation: 'portrait-primary',
         start_url: '/',
         scope: '/',
         icons: [
           {
-            src: '/pwa-192x192.svg',
+            src: '/web-app-manifest-192x192.png',
             sizes: '192x192',
-            type: 'image/svg+xml',
+            type: 'image/png',
             purpose: 'any'
           },
           {
-            src: '/pwa-512x512.svg',
-            sizes: '512x512',
-            type: 'image/svg+xml',
-            purpose: 'any'
-          },
-          {
-            src: '/pwa-512x512.svg',
-            sizes: '512x512',
-            type: 'image/svg+xml',
+            src: '/web-app-manifest-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
             purpose: 'maskable'
+          },
+          {
+            src: '/web-app-manifest-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any'
+          },
+          {
+            src: '/web-app-manifest-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable'
+          },
+          {
+            src: '/apple-touch-icon.png',
+            sizes: '180x180',
+            type: 'image/png',
+            purpose: 'any'
           }
         ]
       },
