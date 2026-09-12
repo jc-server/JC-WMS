@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Users, CalendarCheck, Wallet, LogOut, Loader2, Sun, Moon, Building2,
 } from 'lucide-react';
+import { Analytics } from '@vercel/analytics/react';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useWorkers, type Worker } from '@/hooks/useWorkers';
@@ -190,6 +191,7 @@ export default function App() {
           onDelete={deleteWorker}
         />
       )}
+      <Analytics />
     </div>
   );
 }
