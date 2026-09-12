@@ -107,7 +107,7 @@ export default function App() {
             </div>
             <div className="hidden sm:block">
               <h1 className="text-slate-900 dark:text-white font-bold text-sm leading-tight">JC</h1>
-              <p className="text-amber-600 dark:text-amber-400 font-medium text-xs mt-0.5">Jaiswal Construction</p>
+              <p className="text-amber-600 dark:text-amber-400 font-medium text-xs mt-0.5">Workers Management System</p>
             </div>
           </div>
 
