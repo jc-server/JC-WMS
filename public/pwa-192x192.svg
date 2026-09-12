@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
-  <rect width="192" height="192" rx="40" fill="#18181b"/>
-  <path d="M96 36C65.072 36 40 61.072 40 92c0 14.5 5.4 27.7 14.3 37.8L96 156l41.7-26.2C146.6 119.7 152 106.5 152 92c0-30.928-25.072-56-56-56z" fill="#fbbf24"/>
-  <path d="M96 48c24.3 0 44 19.7 44 44 0 11.2-4.1 21.4-11 29.3L96 138 63 121.3C56.1 113.4 52 103.2 52 92c0-24.3 19.7-44 44-44z" fill="#18181b"/>
-  <text x="96" y="105" font-family="system-ui, sans-serif" font-weight="900" font-size="44" fill="#fbbf24" text-anchor="middle">JC</text>
-</svg>
