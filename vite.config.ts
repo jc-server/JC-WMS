@@ -12,9 +12,9 @@ export default defineConfig({
       injectRegister: 'auto',
       includeAssets: ['favicon.ico', 'favicon.svg', 'favicon-96x96.png', 'apple-touch-icon.png', 'logo.png'],
       manifest: {
-        name: 'Superlabor - Jaiswal Construction',
-        short_name: 'Superlabor',
-        description: 'Daily Workforce Attendance, Overtime & Wage Manager',
+        name: 'Jaiswal Construction',
+        short_name: 'JC',
+        description: 'Workers Management System',
         theme_color: '#18181b',
         background_color: '#09090b',
         display: 'standalone',

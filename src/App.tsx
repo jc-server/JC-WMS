@@ -97,7 +97,7 @@ export default function App() {
               {!imgError ? (
                 <img
                   src="/logo.png"
-                  alt="Superlabor"
+                  alt="JC"
                   className="w-full h-full object-contain rounded-lg"
                   onError={() => setImgError(true)}
                 />
@@ -106,7 +106,7 @@ export default function App() {
               )}
             </div>
             <div className="hidden sm:block">
-              <h1 className="text-slate-900 dark:text-white font-bold text-sm leading-tight">Superlabor</h1>
+              <h1 className="text-slate-900 dark:text-white font-bold text-sm leading-tight">JC</h1>
               <p className="text-amber-600 dark:text-amber-400 font-medium text-xs mt-0.5">Jaiswal Construction</p>
             </div>
           </div>
@@ -170,7 +170,7 @@ export default function App() {
       </main>
 
       <footer className="max-w-5xl mx-auto px-4 py-6 text-center text-slate-400 dark:text-slate-600 text-xs">
-        Superlabor &mdash; Jaiswal Construction Workers Management System
+        Jaiswal Construction &mdash; Workers Management System
       </footer>
 
       {profileWorker && (
