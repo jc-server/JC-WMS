@@ -32,13 +32,15 @@ type LocalEntry = {
   isDirty: boolean;
 };
 
+type ToastState = { visible: boolean; message: string; type: 'saving' | 'saved' | 'error' };
+
 export default function AttendanceMatrix({ workers, siteId, onOpenProfile }: Props) {
   const [date, setDate] = useState(todayStr());
   const { records, loading, saveRecord, saveAll } = useAttendance(siteId, date);
-  const [savingState, setSavingState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [savingWorkerId, setSavingWorkerId] = useState<string | null>(null);
-  const [isBulkSaving, setIsBulkSaving] = useState(false);
+  const [toast, setToast] = useState<ToastState>({ visible: false, message: '', type: 'saving' });
   const localRef = useRef<Record<string, LocalEntry>>({});
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeWorkers = workers.filter((w) => w.active);
 
@@ -58,7 +60,15 @@ export default function AttendanceMatrix({ workers, siteId, onOpenProfile }: Pro
   }, [records, date]);
 
   const [, setRenderTick] = useState(0);
-  const forceRender = () => setRenderTick((t) => t + 1);
+  const forceRender = useCallback(() => setRenderTick((t) => t + 1), []);
+
+  const showToast = useCallback((message: string, type: ToastState['type']) => {
+    setToast({ visible: true, message, type });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => {
+      setToast((prev) => ({ ...prev, visible: false }));
+    }, 1800);
+  }, []);
 
   const getStatus = (workerId: string): AttendanceStatus =>
     localRef.current[workerId]?.status ?? records[workerId]?.status ?? 'absent';
@@ -74,13 +84,12 @@ export default function AttendanceMatrix({ workers, siteId, onOpenProfile }: Pro
 
   const updateLocalField = (workerId: string, partial: Partial<LocalEntry>) => {
     const current = localRef.current[workerId] ?? {
-      status: 'absent',
+      status: 'absent' as AttendanceStatus,
       overtimeHours: 0,
       amountPaid: 0,
       remark: '',
       isDirty: false,
     };
-
     localRef.current = {
       ...localRef.current,
       [workerId]: { ...current, ...partial, isDirty: true },
@@ -88,80 +97,66 @@ export default function AttendanceMatrix({ workers, siteId, onOpenProfile }: Pro
     forceRender();
   };
 
-  const setStatus = (workerId: string, status: AttendanceStatus) => updateLocalField(workerId, { status });
-  const setOvertime = (workerId: string, ot: number) => updateLocalField(workerId, { overtimeHours: Math.max(0, Math.round(ot * 100) / 100) });
-  const setAmountPaid = (workerId: string, amountPaid: number) => updateLocalField(workerId, { amountPaid: Math.max(0, amountPaid) });
-  const setRemarkField = (workerId: string, remark: string) => updateLocalField(workerId, { remark });
-
-  const adjustOT = (workerId: string, delta: number) => setOvertime(workerId, getOT(workerId) + delta);
-
-  const handleSaveWorker = async (workerId: string) => {
+  // Auto-save: immediately persists status + OT to the database
+  const autoSave = useCallback(async (workerId: string) => {
     const entry = localRef.current[workerId];
     if (!entry) return;
-
     setSavingWorkerId(workerId);
-    setSavingState('saving');
+    showToast('Saving...', 'saving');
     try {
-      await saveRecord(
-        workerId,
-        entry.status,
-        entry.overtimeHours,
-        entry.amountPaid,
-        entry.remark
-      );
+      await saveRecord(workerId, entry.status, entry.overtimeHours, entry.amountPaid, entry.remark);
       if (localRef.current[workerId]) {
         localRef.current[workerId].isDirty = false;
       }
-      setSavingState('saved');
-      setTimeout(() => {
-        setSavingState((prev) => (prev === 'saved' ? 'idle' : prev));
-      }, 2000);
+      showToast('Saved', 'saved');
+    } catch (err) {
+      console.error('Auto-save error:', err);
+      showToast('Save failed', 'error');
+    } finally {
+      setSavingWorkerId(null);
+    }
+  }, [saveRecord, showToast]);
+
+  const setStatus = (workerId: string, status: AttendanceStatus) => {
+    updateLocalField(workerId, { status });
+    autoSave(workerId);
+  };
+
+  const setOvertime = (workerId: string, ot: number) => {
+    updateLocalField(workerId, { overtimeHours: Math.max(0, Math.round(ot * 100) / 100) });
+    autoSave(workerId);
+  };
+
+  const adjustOT = (workerId: string, delta: number) => setOvertime(workerId, getOT(workerId) + delta);
+
+  // Payment & remark: update local state only, no auto-save
+  const setAmountPaid = (workerId: string, amountPaid: number) => updateLocalField(workerId, { amountPaid: Math.max(0, amountPaid) });
+  const setRemarkField = (workerId: string, remark: string) => updateLocalField(workerId, { remark });
+
+  // Manual save for payment + remarks only
+  const handleSaveWorker = async (workerId: string) => {
+    const entry = localRef.current[workerId];
+    if (!entry) return;
+    setSavingWorkerId(workerId);
+    showToast('Saving...', 'saving');
+    try {
+      await saveRecord(workerId, entry.status, entry.overtimeHours, entry.amountPaid, entry.remark);
+      if (localRef.current[workerId]) {
+        localRef.current[workerId].isDirty = false;
+      }
+      showToast('Saved', 'saved');
     } catch (err) {
       console.error('Save worker error:', err);
-      setSavingState('idle');
+      showToast('Save failed', 'error');
     } finally {
       setSavingWorkerId(null);
     }
   };
 
-  const handleSaveAllDirty = async () => {
-    const dirtyEntries = Object.entries(localRef.current)
-      .filter(([, p]) => p.isDirty)
-      .map(([workerId, p]) => ({
-        workerId,
-        status: p.status,
-        overtimeHours: p.overtimeHours,
-        amountPaid: p.amountPaid,
-        remark: p.remark,
-      }));
-
-    if (dirtyEntries.length === 0) return;
-
-    setIsBulkSaving(true);
-    setSavingState('saving');
-    try {
-      await saveAll(dirtyEntries);
-      Object.keys(localRef.current).forEach((id) => {
-        if (localRef.current[id]) {
-          localRef.current[id].isDirty = false;
-        }
-      });
-      setSavingState('saved');
-      setTimeout(() => {
-        setSavingState((prev) => (prev === 'saved' ? 'idle' : prev));
-      }, 2000);
-    } catch (err) {
-      console.error('Save all error:', err);
-      setSavingState('idle');
-    } finally {
-      setIsBulkSaving(false);
-    }
-  };
-
-  const markAllPresent = () => {
+  const markAllPresent = async () => {
     activeWorkers.forEach((w) => {
       const current = localRef.current[w.id] ?? {
-        status: 'absent',
+        status: 'absent' as AttendanceStatus,
         overtimeHours: 0,
         amountPaid: records[w.id]?.amountPaid ?? 0,
         remark: records[w.id]?.remark ?? '',
@@ -170,6 +165,23 @@ export default function AttendanceMatrix({ workers, siteId, onOpenProfile }: Pro
       localRef.current[w.id] = { ...current, status: 'present', isDirty: true };
     });
     forceRender();
+
+    const entries = activeWorkers.map((w) => {
+      const e = localRef.current[w.id]!;
+      return { workerId: w.id, status: e.status, overtimeHours: e.overtimeHours, amountPaid: e.amountPaid, remark: e.remark };
+    });
+
+    showToast('Saving all...', 'saving');
+    try {
+      await saveAll(entries);
+      activeWorkers.forEach((w) => {
+        if (localRef.current[w.id]) localRef.current[w.id].isDirty = false;
+      });
+      showToast('All marked present', 'saved');
+    } catch (err) {
+      console.error('Mark all present error:', err);
+      showToast('Save failed', 'error');
+    }
   };
 
   const shiftDate = (days: number) => {
@@ -191,10 +203,32 @@ export default function AttendanceMatrix({ workers, siteId, onOpenProfile }: Pro
     { present: 0, half: 0, absent: 0, ot: 0 }
   );
 
-  const hasAnyDirty = Object.values(localRef.current).some((e) => e.isDirty);
+  const hasDirtyPayment = Object.values(localRef.current).some((e) => e?.isDirty);
 
   return (
     <div>
+      {/* Toast notification */}
+      <div
+        className={`fixed bottom-20 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 ${
+          toast.visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'
+        }`}
+      >
+        <div
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl shadow-lg text-sm font-semibold ${
+            toast.type === 'saved'
+              ? 'bg-emerald-600 text-white'
+              : toast.type === 'error'
+              ? 'bg-rose-600 text-white'
+              : 'bg-zinc-800 dark:bg-zinc-700 text-white'
+          }`}
+        >
+          {toast.type === 'saving' && <Loader2 className="w-4 h-4 animate-spin" />}
+          {toast.type === 'saved' && <Check className="w-4 h-4" />}
+          {toast.type === 'error' && <X className="w-4 h-4" />}
+          {toast.message}
+        </div>
+      </div>
+
       <div className="flex flex-col sm:flex-row gap-3 mb-4 items-center">
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <button
@@ -235,27 +269,10 @@ export default function AttendanceMatrix({ workers, siteId, onOpenProfile }: Pro
         )}
         <div className="flex-1" />
 
-        {/* Global Save All button if multiple changes */}
-        {hasAnyDirty && (
-          <button
-            onClick={handleSaveAllDirty}
-            disabled={isBulkSaving}
-            className="flex items-center gap-2 px-5 py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl shadow-md transition-all active:scale-95 animate-pulse"
-          >
-            {isBulkSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-            <span>Save All Changes</span>
-          </button>
-        )}
-
-        {/* Status indicator */}
+        {/* Auto-save status indicator */}
         <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-100 dark:bg-zinc-800 text-xs font-semibold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-zinc-700">
-          {savingState === 'saving' ? (
-            <><Loader2 className="w-4 h-4 animate-spin text-amber-500" /><span>Saving...</span></>
-          ) : savingState === 'saved' ? (
-            <><Check className="w-4 h-4 text-emerald-500" /><span className="text-emerald-600 dark:text-emerald-400">Saved successfully</span></>
-          ) : (
-            <span>Manual Save Mode</span>
-          )}
+          <Check className="w-4 h-4 text-emerald-500" />
+          <span className="text-emerald-600 dark:text-emerald-400">Auto-saved</span>
         </div>
       </div>
 
@@ -288,7 +305,6 @@ export default function AttendanceMatrix({ workers, siteId, onOpenProfile }: Pro
             const isDirty = localRef.current[worker.id]?.isDirty ?? false;
             const isSavingThis = savingWorkerId === worker.id;
 
-            // Live Daily Net Due calculation
             const dailyEarned =
               (status === 'present' ? worker.dailyWage : status === 'half' ? worker.dailyWage * 0.5 : 0) +
               (ot * worker.overtimeHourlyRate);
@@ -395,7 +411,7 @@ export default function AttendanceMatrix({ workers, siteId, onOpenProfile }: Pro
                   </div>
                 </div>
 
-                {/* Amount Paid Today (₹) & Remark / Note + Right Corner Save Button */}
+                {/* Amount Paid Today + Remark + manual Save button */}
                 <div className="flex flex-col sm:flex-row gap-3 items-stretch pt-2 border-t border-slate-100 dark:border-zinc-800">
                   <div className="flex items-center gap-2 sm:w-72">
                     <label className="text-xs font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">
@@ -428,7 +444,6 @@ export default function AttendanceMatrix({ workers, siteId, onOpenProfile }: Pro
                     />
                   </div>
 
-                  {/* Right Corner Save Button */}
                   <div className="flex justify-end sm:justify-start items-center">
                     <button
                       onClick={() => handleSaveWorker(worker.id)}

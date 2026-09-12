@@ -170,7 +170,15 @@ export default function App() {
       </main>
 
       <footer className="max-w-5xl mx-auto px-4 py-6 text-center text-slate-400 dark:text-slate-600 text-xs">
-        Jaiswal Construction &mdash; Workers Management System
+        &copy; 2026 Jaiswal Construction. All Rights Reserved | Created by{' '}
+        <a
+          href="https://github.com/kalmux1"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-amber-600 dark:text-amber-400 hover:underline font-medium"
+        >
+          KALMUX
+        </a>
       </footer>
 
       {profileWorker && (
