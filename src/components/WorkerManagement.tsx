@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import {
-  Plus, Search, Pencil, Trash2, Phone, Loader2, X, Users, Briefcase,
+  Plus, Search, Pencil, Trash2, Phone, Loader2, X, Users, Briefcase, Settings2,
 } from 'lucide-react';
 import { useWorkers, type Worker } from '@/hooks/useWorkers';
-
-const ROLES = ['Mason', 'Helper', 'Carpenter', 'Electrician', 'Plumber', 'Painter', 'Welder', 'Driver', 'Supervisor', 'Worker'];
+import { useRoles } from '@/hooks/useRoles';
+import ManageRolesModal from '@/components/ManageRolesModal';
 
 type Props = {
   siteId: string | null;
@@ -13,10 +13,12 @@ type Props = {
 
 export default function WorkerManagement({ siteId, onOpenProfile }: Props) {
   const { workers, loading, addWorker, updateWorker, deleteWorker } = useWorkers(siteId);
+  const { roles, addRole, updateRole, deleteRole } = useRoles();
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Worker | null>(null);
+  const [showRolesModal, setShowRolesModal] = useState(false);
 
   const filtered = workers.filter((w) => {
     const matchesSearch = w.name.toLowerCase().includes(search.toLowerCase()) || (w.phone ?? '').includes(search);
@@ -24,7 +26,7 @@ export default function WorkerManagement({ siteId, onOpenProfile }: Props) {
     return matchesSearch && matchesRole;
   });
 
-  const roles = [...new Set(workers.map((w) => w.role))].sort();
+  const filterRoles = [...new Set(workers.map((w) => w.role))].sort();
 
   const handleEdit = (worker: Worker) => {
     setEditing(worker);
@@ -54,7 +56,7 @@ export default function WorkerManagement({ siteId, onOpenProfile }: Props) {
           className="px-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none transition-all text-slate-900 dark:text-white font-medium text-sm"
         >
           <option value="all">All Roles</option>
-          {roles.map((r) => (
+          {filterRoles.map((r) => (
             <option key={r} value={r}>{r}</option>
           ))}
         </select>
@@ -145,6 +147,8 @@ export default function WorkerManagement({ siteId, onOpenProfile }: Props) {
       {showForm && (
         <WorkerForm
           worker={editing}
+          roles={roles}
+          onOpenRoles={() => setShowRolesModal(true)}
           onClose={() => setShowForm(false)}
           onSave={async (data) => {
             if (editing) {
@@ -156,20 +160,33 @@ export default function WorkerManagement({ siteId, onOpenProfile }: Props) {
           }}
         />
       )}
+
+      {showRolesModal && (
+        <ManageRolesModal
+          roles={roles}
+          workerRoles={workers.map((w) => w.role)}
+          onAdd={addRole}
+          onUpdate={updateRole}
+          onDelete={deleteRole}
+          onClose={() => setShowRolesModal(false)}
+        />
+      )}
     </div>
   );
 }
 
 function WorkerForm({
-  worker, onClose, onSave,
+  worker, roles, onOpenRoles, onClose, onSave,
 }: {
   worker: Worker | null;
+  roles: string[];
+  onOpenRoles: () => void;
   onClose: () => void;
   onSave: (data: { name: string; phone: string | null; role: string; dailyWage: number; overtimeHourlyRate: number }) => Promise<void>;
 }) {
   const [name, setName] = useState(worker?.name ?? '');
   const [phone, setPhone] = useState(worker?.phone ?? '');
-  const [role, setRole] = useState(worker?.role ?? 'Worker');
+  const [role, setRole] = useState(worker?.role ?? roles[0] ?? 'Worker');
   const [dailyWage, setDailyWage] = useState(worker ? String(worker.dailyWage) : '');
   const [otRate, setOtRate] = useState(worker ? String(worker.overtimeHourlyRate) : '');
   const [saving, setSaving] = useState(false);
@@ -224,15 +241,26 @@ function WorkerForm({
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Trade / Role</label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              className="w-full px-4 py-3 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all"
-            >
-              {ROLES.map((r) => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
+            <div className="flex gap-2">
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                className="flex-1 px-4 py-3 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all"
+              >
+                {roles.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={onOpenRoles}
+                className="flex items-center gap-1 px-3 py-3 bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300 rounded-xl border border-slate-200 dark:border-zinc-700 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors text-xs font-semibold whitespace-nowrap"
+                title="Manage Roles"
+              >
+                <Settings2 className="w-4 h-4" />
+                <span className="hidden sm:inline">Manage</span>
+              </button>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

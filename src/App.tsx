@@ -90,7 +90,7 @@ export default function App() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-zinc-950 transition-colors">
+    <div className="min-h-screen flex flex-col justify-between bg-gray-50 dark:bg-zinc-950 transition-colors">
       <header className="bg-white dark:bg-zinc-900 sticky top-0 z-40 shadow-sm border-b border-slate-200 dark:border-zinc-800 transition-colors">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
@@ -159,7 +159,7 @@ export default function App() {
         </nav>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-6">
+      <main className="max-w-5xl mx-auto px-4 py-6 flex-1 w-full">
         {tab === 'attendance' && (
           <>
             <MetricsRibbon {...todayMetrics} />
@@ -170,7 +170,7 @@ export default function App() {
         {tab === 'wages' && <WageSummaryView workers={workers} siteId={siteId} onOpenProfile={setProfileWorker} />}
       </main>
 
-      <footer className="max-w-5xl mx-auto px-4 py-6 text-center text-slate-400 dark:text-slate-600 text-xs">
+      <footer className="max-w-5xl mx-auto px-4 py-4 text-center text-xs text-zinc-500 dark:text-zinc-500 pb-[max(1rem,env(safe-area-inset-bottom))]">
         &copy; 2026 Jaiswal Construction. All Rights Reserved | Created by{' '}
         <a
           href="https://github.com/kalmux1"
