@@ -54,8 +54,7 @@ export function useRoles() {
       const trimmed = role.trim();
       if (!trimmed) return;
       const lower = trimmed.toLowerCase();
-      const exists = roles.some((r) => r.toLowerCase() === lower);
-      if (exists) return;
+      if (roles.some((r) => r.toLowerCase() === lower)) return;
       const next = [...roles, trimmed];
       setRoles(next);
       await saveRoles(next);

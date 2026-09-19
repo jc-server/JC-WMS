@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Users, CalendarCheck, Wallet, LogOut, Loader2, Sun, Moon, Building2,
+  Activity,
 } from 'lucide-react';
 import { Analytics } from '@vercel/analytics/react';
 import { useAuth } from '@/context/AuthContext';
@@ -17,14 +18,10 @@ import MetricsRibbon from '@/components/MetricsRibbon';
 import WorkerProfile from '@/components/WorkerProfile';
 import InstallPwaButton from '@/components/InstallPwaButton';
 import NetworkStatus from '@/components/NetworkStatus';
+import SystemHealth from '@/components/SystemHealth';
+import { todayStr } from '@/utils/date';
 
-type Tab = 'attendance' | 'workers' | 'wages' | 'ledger';
-
-function todayStr() {
-  const d = new Date();
-  const tz = d.getTimezoneOffset() * 60000;
-  return new Date(d.getTime() - tz).toISOString().slice(0, 10);
-}
+type Tab = 'attendance' | 'workers' | 'wages' | 'ledger' | 'system';
 
 export default function App() {
   const { user, loading, signOut } = useAuth();
@@ -40,12 +37,18 @@ export default function App() {
   });
   const [imgError, setImgError] = useState(false);
 
-  const { workers, updateWorker, deleteWorker } = useWorkers();
+  const {
+    workers,
+    updateWorker,
+    deleteWorker,
+    reactivateWorker,
+    permanentlyDeleteWorker,
+  } = useWorkers();
   const { records: todayAtt } = useAttendance(todayStr());
   const { advances } = useAdvances();
   const [profileWorker, setProfileWorker] = useState<Worker | null>(null);
 
-  // Live metrics for today (global — no site filter).
+  // Live metrics for today (global).
   useEffect(() => {
     const activeWorkers = workers.filter((w) => w.active);
     let present = 0,
@@ -74,16 +77,21 @@ export default function App() {
       otHours += ot;
     });
 
-    const todayAdvancePayout = advances
+    const khataAdvanceToday = advances
       .filter((a) => a.date === todayStr())
       .reduce((sum, a) => sum + a.amount, 0);
+
+    const attendanceAdvanceToday = Object.values(todayAtt).reduce(
+      (sum, r) => sum + (r.advanceAmount ?? 0),
+      0
+    );
 
     setTodayMetrics({
       present,
       absent,
       half,
       otHours,
-      advancePayout: todayAdvancePayout,
+      advancePayout: khataAdvanceToday + attendanceAdvanceToday,
       dailyCost,
     });
   }, [workers, todayAtt, advances]);
@@ -103,6 +111,7 @@ export default function App() {
     { id: 'workers', label: 'Workers', icon: Users },
     { id: 'wages', label: 'Wages', icon: Wallet },
     { id: 'ledger', label: 'Site Ledger', icon: Building2 },
+    { id: 'system', label: 'System Health', icon: Activity },
   ];
 
   return (
@@ -161,7 +170,7 @@ export default function App() {
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all active:scale-95 whitespace-nowrap ${
                   active
                     ? 'bg-amber-400 text-slate-900 shadow-sm'
-                    : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-850'
+                    : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800'
                 }`}
               >
                 <Icon className="w-4 h-4" /> {t.label}
@@ -179,8 +188,11 @@ export default function App() {
           </>
         )}
         {tab === 'workers' && <WorkerManagement onOpenProfile={setProfileWorker} />}
-        {tab === 'wages' && <WageSummaryView workers={workers} onOpenProfile={setProfileWorker} />}
+        {tab === 'wages' && (
+          <WageSummaryView workers={workers} onOpenProfile={setProfileWorker} />
+        )}
         {tab === 'ledger' && <SiteLedger />}
+        {tab === 'system' && <SystemHealth />}
       </main>
 
       <footer className="max-w-5xl mx-auto px-4 py-4 text-center text-xs text-zinc-500 dark:text-zinc-500 pb-[max(1rem,env(safe-area-inset-bottom))]">
@@ -201,6 +213,8 @@ export default function App() {
           onClose={() => setProfileWorker(null)}
           onUpdate={updateWorker}
           onDelete={deleteWorker}
+          onReactivate={reactivateWorker}
+          onPermanentDelete={permanentlyDeleteWorker}
         />
       )}
       <Analytics />

@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   collection,
-  getDocs,
   addDoc,
   onSnapshot,
   query,
@@ -9,6 +8,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
+import { monthRange } from '@/utils/date';
 
 export type Advance = {
   id: string;
@@ -19,8 +19,6 @@ export type Advance = {
   createdAt: number;
 };
 
-// Advances are GLOBAL — not site-scoped.
-// Path: users/{uid}/advances/{advanceId}
 function advancesPath(user: string) {
   return collection(db, 'users', user, 'advances');
 }
@@ -83,12 +81,8 @@ export function useAdvances() {
 
   const getAdvancesForMonth = useCallback(
     (monthStr: string) => {
-      const [year, month] = monthStr.split('-').map(Number);
-      const start = new Date(year, month - 1, 1);
-      const end = new Date(year, month, 0);
-      const startStr = start.toISOString().slice(0, 10);
-      const endStr = end.toISOString().slice(0, 10);
-      return advances.filter((a) => a.date >= startStr && a.date <= endStr);
+      const { start, end } = monthRange(monthStr);
+      return advances.filter((a) => a.date >= start && a.date <= end);
     },
     [advances]
   );
@@ -106,7 +100,3 @@ export function useAdvances() {
     getAdvancesForWorker,
   };
 }
-
-// Kept as a named export to satisfy any lingering imports in older code.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export { getDocs };

@@ -17,9 +17,12 @@ export type WageBreakdownRow = {
 };
 
 /**
- * Computes wages for the given worker list over a [fromDate, toDate] range,
- * pulling attendance from the GLOBAL attendance collection.
- * Formula: (present × dailyWage) + (half × 0.5 × dailyWage) + (OT × otRate)
+ * Computes wages for the given worker list over [fromDate, toDate].
+ *
+ * Formula:
+ *   present * dailyWage
+ * + half    * 0.5 * dailyWage
+ * + otHours * overtimeHourlyRate     (OT pays on holidays too)
  */
 export function useWageCalculator(
   workers: Worker[],
@@ -49,13 +52,13 @@ export function useWageCalculator(
         const map: Record<string, Bucket> = {};
         snap.forEach((d) => {
           const data = d.data() as Record<string, unknown>;
-          if (data.isHoliday === true) return; // holidays earn ₹0
           const wid = data.workerId as string;
           if (!map[wid]) map[wid] = { present: 0, half: 0, holiday: 0, otHours: 0 };
           const status = data.status as string;
           if (status === 'present') map[wid].present++;
           else if (status === 'half') map[wid].half++;
           else if (status === 'holiday') map[wid].holiday++;
+          // Holidays still count for OT pay.
           map[wid].otHours += Number(data.overtimeHours ?? 0);
         });
         setRecords(map);

@@ -11,6 +11,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
+import { monthRange } from '@/utils/date';
 
 export type AttendanceStatus = 'present' | 'half' | 'absent' | 'holiday';
 
@@ -21,12 +22,12 @@ export type AttendanceRecord = {
   status: AttendanceStatus;
   overtimeHours: number;
   amountPaid: number;
+  advanceAmount: number;
   remark: string;
   isHoliday?: boolean;
   holidayReason?: string;
 };
 
-// Attendance is GLOBAL — site-agnostic. Path: users/{uid}/attendance/{date}_{workerId}
 function attendancePath(user: string) {
   return collection(db, 'users', user, 'attendance');
 }
@@ -45,11 +46,12 @@ export function useAttendance(date: string) {
 
     setLoading(true);
     try {
-      const snap = await getDocs(attendancePath(user.uid));
+      // Only query the requested date — never the whole collection.
+      const q = query(attendancePath(user.uid), where('date', '==', date));
+      const snap = await getDocs(q);
       const map: Record<string, AttendanceRecord> = {};
       snap.forEach((d) => {
         const data = d.data() as Record<string, unknown>;
-        if (data.date !== date) return;
         const workerId = data.workerId as string;
         map[workerId] = {
           id: d.id,
@@ -57,7 +59,8 @@ export function useAttendance(date: string) {
           date: data.date as string,
           status: data.status as AttendanceStatus,
           overtimeHours: Number(data.overtimeHours ?? 0),
-          amountPaid: Number(data.amountPaid ?? data.advanceAmount ?? 0),
+          amountPaid: Number(data.amountPaid ?? 0),
+          advanceAmount: Number(data.advanceAmount ?? 0),
           remark: (data.remark as string) ?? '',
           isHoliday: data.isHoliday === true,
           holidayReason: (data.holidayReason as string) ?? undefined,
@@ -95,8 +98,8 @@ export function useAttendance(date: string) {
           overtimeHours,
           amountPaid,
           remark,
-          isHoliday: false,
-          holidayReason: null,
+          // Only mark as holiday if the new status IS holiday.
+          isHoliday: status === 'holiday',
           updatedAt: Date.now(),
         },
         { merge: true }
@@ -111,9 +114,10 @@ export function useAttendance(date: string) {
           status,
           overtimeHours,
           amountPaid,
+          advanceAmount: prev[workerId]?.advanceAmount ?? 0,
           remark,
-          isHoliday: false,
-          holidayReason: undefined,
+          isHoliday: status === 'holiday',
+          holidayReason: prev[workerId]?.holidayReason,
         },
       }));
     },
@@ -144,8 +148,7 @@ export function useAttendance(date: string) {
             overtimeHours: entry.overtimeHours,
             amountPaid: entry.amountPaid,
             remark: entry.remark,
-            isHoliday: false,
-            holidayReason: null,
+            isHoliday: entry.status === 'holiday',
             updatedAt: Date.now(),
           },
           { merge: true }
@@ -164,9 +167,10 @@ export function useAttendance(date: string) {
             status: entry.status,
             overtimeHours: entry.overtimeHours,
             amountPaid: entry.amountPaid,
+            advanceAmount: prev[entry.workerId]?.advanceAmount ?? 0,
             remark: entry.remark,
-            isHoliday: false,
-            holidayReason: undefined,
+            isHoliday: entry.status === 'holiday',
+            holidayReason: prev[entry.workerId]?.holidayReason,
           };
         }
         return next;
@@ -198,19 +202,20 @@ export function useAttendance(date: string) {
         const existing = await getDocs(
           query(attendancePath(user.uid), where('date', '==', date))
         );
-        const preservedAmount = new Map<string, number>();
+        const preserved = new Map<string, { amountPaid: number; advanceAmount: number }>();
         existing.forEach((d) => {
           const data = d.data() as Record<string, unknown>;
-          preservedAmount.set(
-            data.workerId as string,
-            Number(data.amountPaid ?? data.advanceAmount ?? 0)
-          );
+          preserved.set(data.workerId as string, {
+            amountPaid: Number(data.amountPaid ?? 0),
+            advanceAmount: Number(data.advanceAmount ?? 0),
+          });
         });
 
         const batch = writeBatch(db);
         for (const workerId of workerIds) {
           const docId = `${date}_${workerId}`;
           const ref = doc(db, 'users', user.uid, 'attendance', docId);
+          const keep = preserved.get(workerId) ?? { amountPaid: 0, advanceAmount: 0 };
           batch.set(
             ref,
             {
@@ -220,8 +225,8 @@ export function useAttendance(date: string) {
               isHoliday: true,
               holidayReason: reason,
               overtimeHours: 0,
-              wageEarned: 0,
-              amountPaid: preservedAmount.get(workerId) ?? 0,
+              amountPaid: keep.amountPaid,
+              advanceAmount: keep.advanceAmount,
               remark: `Holiday: ${reason}`,
               updatedAt: Date.now(),
             },
@@ -233,13 +238,15 @@ export function useAttendance(date: string) {
         setRecords((prev) => {
           const next = { ...prev };
           for (const workerId of workerIds) {
+            const keep = preserved.get(workerId) ?? { amountPaid: 0, advanceAmount: 0 };
             next[workerId] = {
               id: `${date}_${workerId}`,
               workerId,
               date,
               status: 'holiday',
               overtimeHours: 0,
-              amountPaid: preservedAmount.get(workerId) ?? 0,
+              amountPaid: keep.amountPaid,
+              advanceAmount: keep.advanceAmount,
               remark: `Holiday: ${reason}`,
               isHoliday: true,
               holidayReason: reason,
@@ -282,19 +289,15 @@ export function useMonthlyAttendance(monthStr: string) {
       return;
     }
 
-    const [year, month] = monthStr.split('-').map(Number);
-    const start = new Date(year, month - 1, 1);
-    const end = new Date(year, month, 0);
-    const startStr = start.toISOString().slice(0, 10);
-    const endStr = end.toISOString().slice(0, 10);
+    const { start, end } = monthRange(monthStr);
 
     setLoading(true);
     (async () => {
       try {
         const q = query(
           attendancePath(user.uid),
-          where('date', '>=', startStr),
-          where('date', '<=', endStr)
+          where('date', '>=', start),
+          where('date', '<=', end)
         );
         const snap = await getDocs(q);
         const map: Record<string, AttendanceMonthRecord> = {};
@@ -302,9 +305,6 @@ export function useMonthlyAttendance(monthStr: string) {
           const data = d.data() as Record<string, unknown>;
           const workerId = data.workerId as string;
           const status = data.status as AttendanceStatus;
-          const ot = Number(data.overtimeHours ?? 0);
-          const amountPaid = Number(data.amountPaid ?? 0);
-          const advanceAmount = Number(data.advanceAmount ?? 0);
           if (!map[workerId]) {
             map[workerId] = {
               present: 0,
@@ -320,9 +320,9 @@ export function useMonthlyAttendance(monthStr: string) {
           else if (status === 'half') map[workerId].half++;
           else if (status === 'holiday') map[workerId].holiday++;
           else map[workerId].absent++;
-          map[workerId].otHours += ot;
-          map[workerId].amountPaid += amountPaid;
-          map[workerId].advanceAmount += advanceAmount;
+          map[workerId].otHours += Number(data.overtimeHours ?? 0);
+          map[workerId].amountPaid += Number(data.amountPaid ?? 0);
+          map[workerId].advanceAmount += Number(data.advanceAmount ?? 0);
         });
         setRecords(map);
       } catch (err) {

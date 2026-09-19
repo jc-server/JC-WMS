@@ -23,8 +23,6 @@ export type Worker = {
   createdAt: number;
 };
 
-// Workers are GLOBAL — not site-scoped.
-// Path: users/{uid}/workers/{workerId}
 function workersPath(user: string) {
   return collection(db, 'users', user, 'workers');
 }
@@ -107,7 +105,31 @@ export function useWorkers() {
     [user]
   );
 
+  /**
+   * Soft-delete: sets active:false. Historical attendance and advances stay
+   * linked and remain visible in the worker's profile.
+   */
   const deleteWorker = useCallback(
+    async (id: string) => {
+      if (!user) return;
+      await updateDoc(doc(db, 'users', user.uid, 'workers', id), { active: false });
+    },
+    [user]
+  );
+
+  const reactivateWorker = useCallback(
+    async (id: string) => {
+      if (!user) return;
+      await updateDoc(doc(db, 'users', user.uid, 'workers', id), { active: true });
+    },
+    [user]
+  );
+
+  /**
+   * Hard-delete: permanently removes the worker document.
+   * Historical attendance/advance docs remain (orphaned) in Firestore.
+   */
+  const permanentlyDeleteWorker = useCallback(
     async (id: string) => {
       if (!user) return;
       await deleteDoc(doc(db, 'users', user.uid, 'workers', id));
@@ -115,5 +137,13 @@ export function useWorkers() {
     [user]
   );
 
-  return { workers, loading, addWorker, updateWorker, deleteWorker };
+  return {
+    workers,
+    loading,
+    addWorker,
+    updateWorker,
+    deleteWorker,
+    reactivateWorker,
+    permanentlyDeleteWorker,
+  };
 }

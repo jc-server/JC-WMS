@@ -3,6 +3,7 @@ import {
   X, Pencil, Trash2, Phone, Briefcase, CalendarDays, Plus, Download,
   Loader2, Check, Clock, AlertCircle, TrendingDown, Wallet, Zap,
   ChevronLeft, ChevronRight, Save, IndianRupee, Settings2, CalendarOff,
+  RotateCcw, ShieldAlert,
 } from 'lucide-react';
 import type { Worker } from '@/hooks/useWorkers';
 import { useWorkerAttendance, type DayRecord } from '@/hooks/useWorkerAttendance';
@@ -10,11 +11,21 @@ import { useWorkerAdvances } from '@/hooks/useWorkerAdvances';
 import type { AttendanceStatus } from '@/hooks/useAttendance';
 import { useRoles } from '@/hooks/useRoles';
 import ManageRolesModal from '@/components/ManageRolesModal';
+import ConfirmDialog from '@/components/ConfirmDialog';
+import { rowsToCsv, downloadCsv } from '@/utils/csv';
+import { isToday as isTodayFn, monthLabel } from '@/utils/date';
+import { calculateAggregateWages } from '@/utils/calculations';
 
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-const STATUS_BADGE: Record<AttendanceStatus, { label: string; bg: string; text: string; border: string }> = {
+const STATUS_BADGE: Record<
+  AttendanceStatus,
+  { label: string; bg: string; text: string; border: string }
+> = {
   present: { label: 'P', bg: 'bg-green-500', text: 'text-white', border: 'border-green-500' },
   half: { label: 'HD', bg: 'bg-amber-500', text: 'text-white', border: 'border-amber-500' },
   absent: { label: 'A', bg: 'bg-red-500', text: 'text-white', border: 'border-red-500' },
@@ -24,15 +35,20 @@ const STATUS_BADGE: Record<AttendanceStatus, { label: string; bg: string; text: 
 type Props = {
   worker: Worker;
   onClose: () => void;
-  onUpdate: (id: string, data: {
-    name?: string;
-    phone?: string | null;
-    role?: string;
-    dailyWage?: number;
-    overtimeHourlyRate?: number;
-    active?: boolean;
-  }) => Promise<void>;
+  onUpdate: (
+    id: string,
+    data: {
+      name?: string;
+      phone?: string | null;
+      role?: string;
+      dailyWage?: number;
+      overtimeHourlyRate?: number;
+      active?: boolean;
+    }
+  ) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onPermanentDelete?: (id: string) => Promise<void>;
+  onReactivate?: (id: string) => Promise<void>;
 };
 
 function currentMonthStr() {
@@ -44,12 +60,20 @@ function dateStr(year: number, month: number, day: number) {
   return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
-export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: Props) {
-  const [monthStr, setMonthStr] = useState(currentMonthStr());
+export default function WorkerProfile({
+  worker,
+  onClose,
+  onUpdate,
+  onDelete,
+  onPermanentDelete,
+  onReactivate,
+}: Props) {
+  const [monthStr, setMonthStr] = useState(currentMonthStr);
   const [editing, setEditing] = useState(false);
   const [showDayPopup, setShowDayPopup] = useState<string | null>(null);
   const [showAddAdvance, setShowAddAdvance] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmSoftDelete, setConfirmSoftDelete] = useState(false);
+  const [confirmHardDelete, setConfirmHardDelete] = useState(false);
   const [showRolesModal, setShowRolesModal] = useState(false);
 
   const { roles, addRole, updateRole, deleteRole } = useRoles();
@@ -70,6 +94,7 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
   const [editWage, setEditWage] = useState(String(worker.dailyWage));
   const [editOT, setEditOT] = useState(String(worker.overtimeHourlyRate));
   const [savingEdit, setSavingEdit] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleSaveEdit = async () => {
     setSavingEdit(true);
@@ -83,13 +108,25 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
       });
       setEditing(false);
     } catch (err) {
-      alert('Failed to save: ' + (err as Error).message);
+      setErrorMessage('Failed to save: ' + (err as Error).message);
     }
     setSavingEdit(false);
   };
 
-  const handleDelete = async () => {
+  const handleSoftDelete = async () => {
     await onDelete(worker.id);
+    onClose();
+  };
+
+  const handleHardDelete = async () => {
+    if (!onPermanentDelete) return;
+    await onPermanentDelete(worker.id);
+    onClose();
+  };
+
+  const handleReactivate = async () => {
+    if (!onReactivate) return;
+    await onReactivate(worker.id);
     onClose();
   };
 
@@ -121,10 +158,11 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
       dailyPaid += r.amountPaid || 0;
       attendanceAdvances += r.advanceAmount || 0;
     });
-    const gross =
-      present * worker.dailyWage +
-      half * 0.5 * worker.dailyWage +
-      otHours * worker.overtimeHourlyRate;
+    const gross = calculateAggregateWages(
+      { present, half, absent, holiday, otHours },
+      worker.dailyWage,
+      worker.overtimeHourlyRate
+    );
     const khataAdvances = advances.reduce((sum, a) => sum + a.amount, 0);
     const totalAdvances = khataAdvances + attendanceAdvances;
     const totalPaid = dailyPaid + totalAdvances;
@@ -144,54 +182,68 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
   };
 
   const downloadMonthlySlip = () => {
-    const monthLabel = `${MONTHS[month - 1]} ${year}`;
-    let csv = `JC-WMS Monthly Slip\n`;
-    csv += `Worker,${worker.name}\n`;
-    csv += `Phone,${worker.phone ?? '-'}\n`;
-    csv += `Role,${worker.role}\n`;
-    csv += `Daily Wage,Rs.${worker.dailyWage.toFixed(2)}\n`;
-    csv += `OT Rate/hr,Rs.${worker.overtimeHourlyRate.toFixed(2)}\n`;
-    csv += `Month,${monthLabel}\n\n`;
-    csv += `Date,Status,Overtime Hours,Amount Paid,Advance Given,Remark\n`;
+    const monthLabelText = monthLabel(monthStr);
+    const rows: (string | number)[][] = [];
+    rows.push(['JC-WMS Monthly Slip']);
+    rows.push(['Worker', worker.name]);
+    rows.push(['Phone', worker.phone ?? '-']);
+    rows.push(['Role', worker.role]);
+    rows.push(['Daily Wage', `Rs.${worker.dailyWage.toFixed(2)}`]);
+    rows.push(['OT Rate/hr', `Rs.${worker.overtimeHourlyRate.toFixed(2)}`]);
+    rows.push(['Month', monthLabelText]);
+    rows.push([]);
+    rows.push(['Date', 'Status', 'Overtime Hours', 'Amount Paid', 'Advance Given', 'Remark']);
     Object.entries(records)
       .sort(([a], [b]) => a.localeCompare(b))
       .forEach(([date, r]) => {
-        csv += `${date},${r.status},${r.overtimeHours.toFixed(2)},Rs.${(r.amountPaid || 0).toFixed(2)},Rs.${(r.advanceAmount || 0).toFixed(2)},${r.remark || '-'}\n`;
+        rows.push([
+          date,
+          r.status,
+          r.overtimeHours.toFixed(2),
+          `Rs.${(r.amountPaid || 0).toFixed(2)}`,
+          `Rs.${(r.advanceAmount || 0).toFixed(2)}`,
+          r.remark || '-',
+        ]);
       });
-    csv += `\nSummary\n`;
-    csv += `Present Days,${stats.present}\n`;
-    csv += `Half Days,${stats.half}\n`;
-    csv += `Absent Days,${stats.absent}\n`;
-    csv += `Holiday Days,${stats.holiday}\n`;
-    csv += `Total OT Hours,${stats.otHours.toFixed(2)}\n`;
-    csv += `Gross Wages,Rs.${stats.gross.toFixed(2)}\n`;
-    csv += `Daily Amount Paid,Rs.${stats.dailyPaid.toFixed(2)}\n`;
-    csv += `Khata Advances,Rs.${stats.khataAdvances.toFixed(2)}\n`;
-    csv += `Attendance Advances,Rs.${stats.attendanceAdvances.toFixed(2)}\n`;
-    csv += `Total Advances,Rs.${stats.totalAdvances.toFixed(2)}\n`;
-    csv += `Total Amount Paid,Rs.${stats.totalPaid.toFixed(2)}\n`;
-    csv += `Net Balance Due,Rs.${stats.balance.toFixed(2)}\n\n`;
+    rows.push([]);
+    rows.push(['Summary']);
+    rows.push(['Present Days', stats.present]);
+    rows.push(['Half Days', stats.half]);
+    rows.push(['Absent Days', stats.absent]);
+    rows.push(['Holiday Days', stats.holiday]);
+    rows.push(['Total OT Hours', stats.otHours.toFixed(2)]);
+    rows.push(['Gross Wages', `Rs.${stats.gross.toFixed(2)}`]);
+    rows.push(['Daily Amount Paid', `Rs.${stats.dailyPaid.toFixed(2)}`]);
+    rows.push(['Khata Advances', `Rs.${stats.khataAdvances.toFixed(2)}`]);
+    rows.push(['Attendance Advances', `Rs.${stats.attendanceAdvances.toFixed(2)}`]);
+    rows.push(['Total Advances', `Rs.${stats.totalAdvances.toFixed(2)}`]);
+    rows.push(['Total Amount Paid', `Rs.${stats.totalPaid.toFixed(2)}`]);
+    rows.push(['Net Balance Due', `Rs.${stats.balance.toFixed(2)}`]);
 
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `JC-WMS_${worker.name.replace(/\s+/g, '_')}_${monthStr}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    const csv = rowsToCsv(rows);
+    downloadCsv(
+      `JC-WMS_${worker.name.replace(/\s+/g, '_')}_${monthStr}.csv`,
+      csv
+    );
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/50 backdrop-blur-sm">
       <div className="bg-white dark:bg-zinc-900 rounded-none sm:rounded-2xl shadow-2xl w-full max-w-2xl max-h-screen sm:max-h-[92vh] overflow-y-auto">
-        {/* Header */}
         <div className="sticky top-0 z-20 bg-white dark:bg-zinc-900 border-b border-slate-100 dark:border-zinc-800 px-5 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 bg-amber-100 dark:bg-amber-900/40 rounded-xl flex items-center justify-center font-bold text-amber-700 dark:text-amber-400 text-xl">
               {worker.name.charAt(0).toUpperCase()}
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">{worker.name}</h2>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                {worker.name}
+                {!worker.active && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-zinc-700 text-slate-500 dark:text-slate-400 uppercase">
+                    Inactive
+                  </span>
+                )}
+              </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">{worker.role}</p>
             </div>
           </div>
@@ -204,7 +256,6 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
         </div>
 
         <div className="p-5 space-y-6">
-          {/* Top summary — 3 cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="bg-slate-100 dark:bg-zinc-800 rounded-2xl p-4 border border-slate-200 dark:border-zinc-700">
               <div className="flex items-center gap-2 mb-2">
@@ -216,7 +267,7 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
                 </p>
               </div>
               <p className="text-2xl font-bold text-slate-900 dark:text-white">
-                &#8377;{stats.gross.toFixed(0)}
+                ₹{stats.gross.toFixed(0)}
               </p>
               <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
                 {MONTHS[month - 1]} {year}
@@ -233,7 +284,7 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
                 </p>
               </div>
               <p className="text-2xl font-bold text-slate-900 dark:text-white">
-                &#8377;{stats.totalPaid.toFixed(0)}
+                ₹{stats.totalPaid.toFixed(0)}
               </p>
               <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
                 Daily + attendance + khata advances
@@ -250,7 +301,7 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
                     Remaining Balance to Pay
                   </p>
                 </div>
-                <p className="text-2xl font-bold text-white">&#8377;{stats.balance.toFixed(0)}</p>
+                <p className="text-2xl font-bold text-white">₹{stats.balance.toFixed(0)}</p>
                 <p className="text-xs text-white/80 mt-1">Pending liability to pay worker</p>
               </div>
             ) : stats.balance < 0 ? (
@@ -263,7 +314,7 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
                     Advance Outstanding
                   </p>
                 </div>
-                <p className="text-2xl font-bold text-white">&#8377;{Math.abs(stats.balance).toFixed(0)}</p>
+                <p className="text-2xl font-bold text-white">₹{Math.abs(stats.balance).toFixed(0)}</p>
                 <p className="text-xs text-white/80 mt-1">Advance given in excess</p>
               </div>
             ) : (
@@ -276,13 +327,12 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
                     Settled / Nil
                   </p>
                 </div>
-                <p className="text-2xl font-bold text-slate-600 dark:text-slate-300">&#8377;0</p>
+                <p className="text-2xl font-bold text-slate-600 dark:text-slate-300">₹0</p>
                 <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">All accounts clear</p>
               </div>
             )}
           </div>
 
-          {/* Profile details */}
           {editing ? (
             <div className="space-y-3 bg-slate-50 dark:bg-zinc-800/50 rounded-2xl p-4">
               <div className="grid grid-cols-2 gap-3">
@@ -335,7 +385,7 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
                 <div></div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
-                    Daily Wage (&#8377;)
+                    Daily Wage (₹)
                   </label>
                   <input
                     type="number"
@@ -348,7 +398,7 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
-                    OT Rate/hr (&#8377;)
+                    OT Rate/hr (₹)
                   </label>
                   <input
                     type="number"
@@ -384,48 +434,92 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
                 <DetailItem
                   icon={IndianRupee}
                   label="Daily Wage"
-                  value={`\u20B9${worker.dailyWage.toFixed(0)}`}
+                  value={`₹${worker.dailyWage.toFixed(0)}`}
                 />
                 <DetailItem
                   icon={Zap}
                   label="OT Rate/hr"
-                  value={`\u20B9${worker.overtimeHourlyRate.toFixed(0)}`}
+                  value={`₹${worker.overtimeHourlyRate.toFixed(0)}`}
                 />
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => setEditing(true)}
                   className="flex items-center gap-1.5 px-3 py-2 text-slate-600 dark:text-slate-300 font-medium text-sm hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
                 >
                   <Pencil className="w-3.5 h-3.5" /> Edit
                 </button>
+                {worker.active ? (
+                  <button
+                    onClick={() => setConfirmSoftDelete(true)}
+                    className="flex items-center gap-1.5 px-3 py-2 text-amber-600 dark:text-amber-400 font-medium text-sm hover:bg-amber-50 dark:hover:bg-amber-950/30 rounded-lg transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Deactivate
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={handleReactivate}
+                      className="flex items-center gap-1.5 px-3 py-2 text-emerald-600 dark:text-emerald-400 font-medium text-sm hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-lg transition-colors"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" /> Reactivate
+                    </button>
+                    {onPermanentDelete && (
+                      <button
+                        onClick={() => setConfirmHardDelete(true)}
+                        className="flex items-center gap-1.5 px-3 py-2 text-red-600 dark:text-red-400 font-medium text-sm hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors"
+                      >
+                        <ShieldAlert className="w-3.5 h-3.5" /> Permanent Delete
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {confirmSoftDelete && (
+            <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-2xl p-4">
+              <div className="flex items-start gap-2 mb-3">
+                <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                <p className="text-sm text-amber-700 dark:text-amber-300 font-medium">
+                  Deactivate {worker.name}? They will be hidden from attendance, but their history remains intact. You can reactivate them later.
+                </p>
+              </div>
+              <div className="flex gap-2">
                 <button
-                  onClick={() => setConfirmDelete(true)}
-                  className="flex items-center gap-1.5 px-3 py-2 text-red-500 dark:text-red-400 font-medium text-sm hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors"
+                  onClick={handleSoftDelete}
+                  className="flex-1 py-2.5 bg-amber-500 text-white font-semibold rounded-xl hover:bg-amber-600 transition-colors text-sm active:scale-95"
                 >
-                  <Trash2 className="w-3.5 h-3.5" /> Delete Worker
+                  Yes, Deactivate
+                </button>
+                <button
+                  onClick={() => setConfirmSoftDelete(false)}
+                  className="px-4 py-2.5 text-slate-600 dark:text-slate-300 font-semibold rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors text-sm"
+                >
+                  Cancel
                 </button>
               </div>
             </div>
           )}
 
-          {confirmDelete && (
+          {confirmHardDelete && (
             <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-2xl p-4">
               <div className="flex items-start gap-2 mb-3">
-                <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                <ShieldAlert className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
                 <p className="text-sm text-red-700 dark:text-red-300 font-medium">
-                  Delete {worker.name}? This permanently removes all their attendance and advance records.
+                  Permanently delete {worker.name}? Their worker profile is removed. Historical attendance and advance documents remain in Firestore (orphaned). This cannot be undone.
                 </p>
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={handleDelete}
+                  onClick={handleHardDelete}
                   className="flex-1 py-2.5 bg-red-600 text-white font-semibold rounded-xl hover:bg-red-700 transition-colors text-sm active:scale-95"
                 >
-                  Yes, Delete
+                  Yes, Delete Forever
                 </button>
                 <button
-                  onClick={() => setConfirmDelete(false)}
+                  onClick={() => setConfirmHardDelete(false)}
                   className="px-4 py-2.5 text-slate-600 dark:text-slate-300 font-semibold rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors text-sm"
                 >
                   Cancel
@@ -459,7 +553,7 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
 
           {loading ? (
             <div className="flex items-center justify-center py-12 text-slate-400">
-              <Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading calendar...
+              <Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading calendar…
             </div>
           ) : (
             <div>
@@ -477,13 +571,17 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
                 {calendar.map((cell, i) => {
                   if (!cell) return <div key={i} className="aspect-square" />;
                   const rec = records[cell.date];
-                  const isToday = cell.date === new Date().toISOString().slice(0, 10);
+                  const today = isTodayFn(cell.date);
                   const isHoliday = rec?.isHoliday === true;
                   return (
                     <button
                       key={i}
                       onClick={() => setShowDayPopup(cell.date)}
-                      title={isHoliday ? `Holiday: ${rec?.holidayReason || 'Declared'}` : undefined}
+                      title={
+                        isHoliday
+                          ? `Holiday: ${rec?.holidayReason || 'Declared'}`
+                          : undefined
+                      }
                       className={`aspect-square rounded-lg border flex flex-col items-center justify-center relative transition-all hover:scale-105 active:scale-95 ${
                         rec
                           ? isHoliday
@@ -494,7 +592,7 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
                             ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900'
                             : 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900'
                           : 'bg-slate-50 dark:bg-zinc-800/50 border-slate-100 dark:border-zinc-800'
-                      } ${isToday ? 'ring-2 ring-amber-400' : ''}`}
+                      } ${today ? 'ring-2 ring-amber-400' : ''}`}
                     >
                       <span className="text-xs font-medium text-slate-500 dark:text-slate-400 absolute top-1 left-1.5">
                         {cell.day}
@@ -517,7 +615,7 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
                       )}
                       {rec && (rec.advanceAmount || 0) > 0 && (
                         <span className="text-[9px] font-bold text-red-600 dark:text-red-400 absolute top-0.5 right-1 bg-red-100 dark:bg-red-950/60 px-1 rounded">
-                          &#8377;{rec.advanceAmount} adv
+                          ₹{rec.advanceAmount} adv
                         </span>
                       )}
                     </button>
@@ -537,9 +635,9 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
               <FinCard label="Absent" value={String(stats.absent)} color="text-red-600 dark:text-red-400" bg="bg-red-50 dark:bg-red-950/30" />
               <FinCard label="Holiday" value={String(stats.holiday)} color="text-purple-600 dark:text-purple-400" bg="bg-purple-50 dark:bg-purple-950/30" />
               <FinCard label="OT Hours" value={stats.otHours.toFixed(1)} color="text-blue-600 dark:text-blue-400" bg="bg-blue-50 dark:bg-blue-950/30" />
-              <FinCard label="Gross Wages" value={`\u20B9${stats.gross.toFixed(0)}`} color="text-slate-900 dark:text-white" bg="bg-slate-100 dark:bg-zinc-800" />
-              <FinCard label="Att. Adv." value={`\u20B9${stats.attendanceAdvances.toFixed(0)}`} color="text-red-600 dark:text-red-400" bg="bg-red-50 dark:bg-red-950/30" />
-              <FinCard label="Khata Adv." value={`\u20B9${stats.khataAdvances.toFixed(0)}`} color="text-purple-600 dark:text-purple-400" bg="bg-purple-50 dark:bg-purple-950/30" />
+              <FinCard label="Gross Wages" value={`₹${stats.gross.toFixed(0)}`} color="text-slate-900 dark:text-white" bg="bg-slate-100 dark:bg-zinc-800" />
+              <FinCard label="Att. Adv." value={`₹${stats.attendanceAdvances.toFixed(0)}`} color="text-red-600 dark:text-red-400" bg="bg-red-50 dark:bg-red-950/30" />
+              <FinCard label="Khata Adv." value={`₹${stats.khataAdvances.toFixed(0)}`} color="text-purple-600 dark:text-purple-400" bg="bg-purple-50 dark:bg-purple-950/30" />
             </div>
           </div>
 
@@ -605,14 +703,14 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
                         </div>
                         <div>
                           <p className="font-semibold text-slate-900 dark:text-white text-sm">
-                            &#8377;{e.amount.toFixed(0)}
+                            ₹{e.amount.toFixed(0)}
                           </p>
                           <p className="text-xs text-slate-500 dark:text-slate-400">
                             {new Date(e.date + 'T00:00:00').toLocaleDateString('en-IN', {
                               day: 'numeric',
                               month: 'short',
                             })}
-                            {e.remark && ` \u00b7 ${e.remark}`}
+                            {e.remark && ` · ${e.remark}`}
                           </p>
                         </div>
                       </div>
@@ -687,6 +785,16 @@ export default function WorkerProfile({ worker, onClose, onUpdate, onDelete }: P
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={errorMessage !== null}
+        mode="alert"
+        variant="danger"
+        title="Something Went Wrong"
+        message={errorMessage ?? ''}
+        confirmLabel="OK"
+        onCancel={() => setErrorMessage(null)}
+      />
     </div>
   );
 }
@@ -819,7 +927,7 @@ function DayEditPopup({
                 {s === 'present' && <Check className="w-4 h-4" />}
                 {s === 'half' && <Clock className="w-4 h-4" />}
                 {s === 'absent' && <X className="w-4 h-4" />}
-                {cfg.label === 'P' ? 'Present' : cfg.label === 'HD' ? 'Half' : 'Absent'}
+                {s === 'present' ? 'Present' : s === 'half' ? 'Half' : 'Absent'}
               </button>
             );
           })}
@@ -855,11 +963,11 @@ function DayEditPopup({
 
         <div className="mb-3">
           <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
-            Advance (&#8377;)
+            Advance (₹)
           </label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-medium">
-              &#8377;
+              ₹
             </span>
             <input
               type="number"
@@ -875,11 +983,11 @@ function DayEditPopup({
 
         <div className="mb-3">
           <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
-            Amount Paid Today (&#8377;)
+            Amount Paid Today (₹)
           </label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-medium">
-              &#8377;
+              ₹
             </span>
             <input
               type="number"
@@ -982,7 +1090,7 @@ function AddAdvancePopup({
         <form onSubmit={handleAdd} className="space-y-3">
           <div>
             <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
-              Amount (&#8377;)
+              Amount (₹)
             </label>
             <input
               type="number"

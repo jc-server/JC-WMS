@@ -18,7 +18,7 @@ export type Transaction = {
   id: string;
   type: TransactionType;
   amount: number;
-  date: string; // YYYY-MM-DD
+  date: string;
   category: string;
   paymentMode: PaymentMode;
   remark: string;
@@ -27,7 +27,12 @@ export type Transaction = {
 
 export type TransactionInput = Omit<Transaction, 'id' | 'createdAt'>;
 
-export const CREDIT_CATEGORIES = ['Advance', 'Running Bill', 'Final Settlement'] as const;
+export const CREDIT_CATEGORIES = [
+  'Advance',
+  'Running Bill',
+  'Final Settlement',
+] as const;
+
 export const DEBIT_CATEGORIES = [
   'Cement',
   'Steel',
@@ -37,7 +42,13 @@ export const DEBIT_CATEGORIES = [
   'Machinery',
   'Food/Misc',
 ] as const;
-export const PAYMENT_MODES: PaymentMode[] = ['Cash', 'UPI', 'Bank Transfer', 'Cheque'];
+
+export const PAYMENT_MODES: PaymentMode[] = [
+  'Cash',
+  'UPI',
+  'Bank Transfer',
+  'Cheque',
+];
 
 function siteTxPath(user: string, siteId: string) {
   return collection(db, 'users', user, 'sites', siteId, 'transactions');
@@ -102,7 +113,9 @@ export function useTransactions(siteId: string | null) {
         });
       } catch (err) {
         console.error('addTransaction error:', err);
-        throw new Error('Could not save transaction. Please check your connection and try again.');
+        throw new Error(
+          'Could not save transaction. Please check your connection and try again.'
+        );
       }
     },
     [user, siteId]
@@ -112,7 +125,9 @@ export function useTransactions(siteId: string | null) {
     async (id: string) => {
       if (!user || !siteId) throw new Error('No active site selected.');
       try {
-        await deleteDoc(doc(db, 'users', user.uid, 'sites', siteId, 'transactions', id));
+        await deleteDoc(
+          doc(db, 'users', user.uid, 'sites', siteId, 'transactions', id)
+        );
       } catch (err) {
         console.error('deleteTransaction error:', err);
         throw new Error('Could not delete transaction. Please try again.');

@@ -10,6 +10,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
+import { monthRange } from '@/utils/date';
 
 export type WorkerAdvance = {
   id: string;
@@ -19,8 +20,6 @@ export type WorkerAdvance = {
   createdAt: number;
 };
 
-// Advances are GLOBAL. Worker filter is client-side.
-// Path: users/{uid}/advances/{advanceId}
 export function useWorkerAdvances(workerId: string | null, monthStr: string) {
   const { user } = useAuth();
   const [advances, setAdvances] = useState<WorkerAdvance[]>([]);
@@ -33,17 +32,13 @@ export function useWorkerAdvances(workerId: string | null, monthStr: string) {
       return;
     }
 
-    const [year, month] = monthStr.split('-').map(Number);
-    const start = new Date(year, month - 1, 1);
-    const end = new Date(year, month, 0);
-    const startStr = start.toISOString().slice(0, 10);
-    const endStr = end.toISOString().slice(0, 10);
+    const { start, end } = monthRange(monthStr);
 
     // Range-only query → no composite index required.
     const q = query(
       collection(db, 'users', user.uid, 'advances'),
-      where('date', '>=', startStr),
-      where('date', '<=', endStr)
+      where('date', '>=', start),
+      where('date', '<=', end)
     );
 
     const unsub = onSnapshot(
@@ -62,9 +57,8 @@ export function useWorkerAdvances(workerId: string | null, monthStr: string) {
           });
         });
         list.sort((a, b) => {
-          const dateCmp = b.date.localeCompare(a.date);
-          if (dateCmp !== 0) return dateCmp;
-          return b.createdAt - a.createdAt;
+          const c = b.date.localeCompare(a.date);
+          return c !== 0 ? c : b.createdAt - a.createdAt;
         });
         setAdvances(list);
         setLoading(false);

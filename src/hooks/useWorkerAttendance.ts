@@ -11,6 +11,7 @@ import {
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 import type { AttendanceStatus } from '@/hooks/useAttendance';
+import { monthRange } from '@/utils/date';
 
 export type DayRecord = {
   status: AttendanceStatus;
@@ -22,7 +23,6 @@ export type DayRecord = {
   holidayReason?: string;
 };
 
-// Attendance is GLOBAL — workerId alone identifies the worker.
 export function useWorkerAttendance(workerId: string | null, monthStr: string) {
   const { user } = useAuth();
   const [records, setRecords] = useState<Record<string, DayRecord>>({});
@@ -35,17 +35,13 @@ export function useWorkerAttendance(workerId: string | null, monthStr: string) {
       return;
     }
 
-    const [year, month] = monthStr.split('-').map(Number);
-    const start = new Date(year, month - 1, 1);
-    const end = new Date(year, month, 0);
-    const startStr = start.toISOString().slice(0, 10);
-    const endStr = end.toISOString().slice(0, 10);
+    const { start, end } = monthRange(monthStr);
 
     // Range-only query → no composite index required.
     const q = query(
       collection(db, 'users', user.uid, 'attendance'),
-      where('date', '>=', startStr),
-      where('date', '<=', endStr)
+      where('date', '>=', start),
+      where('date', '<=', end)
     );
 
     const unsub = onSnapshot(
@@ -90,6 +86,7 @@ export function useWorkerAttendance(workerId: string | null, monthStr: string) {
       if (!user || !workerId) return;
       const docId = `${date}_${workerId}`;
       const ref = doc(db, 'users', user.uid, 'attendance', docId);
+      const isHoliday = status === 'holiday';
       await setDoc(
         ref,
         {
@@ -100,8 +97,9 @@ export function useWorkerAttendance(workerId: string | null, monthStr: string) {
           amountPaid,
           advanceAmount,
           remark,
-          isHoliday: false,
-          holidayReason: null,
+          isHoliday,
+          // Only clear holidayReason when status is no longer holiday.
+          ...(isHoliday ? {} : { holidayReason: null }),
           updatedAt: Date.now(),
         },
         { merge: true }

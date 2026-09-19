@@ -1,10 +1,12 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   Calendar, Check, Clock, X, Minus, Plus, Loader2, ChevronLeft, ChevronRight,
   CheckCheck, Save, CalendarOff,
 } from 'lucide-react';
 import { useAttendance, type AttendanceStatus } from '@/hooks/useAttendance';
 import type { Worker } from '@/hooks/useWorkers';
+import { todayStr, shiftDate as shiftDateStr } from '@/utils/date';
+import { calculateDailyEarned } from '@/utils/calculations';
 
 type Props = {
   workers: Worker[];
@@ -15,39 +17,33 @@ const SELECTABLE_STATUSES: AttendanceStatus[] = ['present', 'half', 'absent'];
 
 const STATUS_CONFIG: Record<
   AttendanceStatus,
-  { label: string; color: string; activeColor: string; value: number }
+  { label: string; color: string; activeColor: string }
 > = {
   present: {
     label: 'Present',
-    color: 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 border-green-200 dark:border-green-900',
+    color:
+      'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 border-green-200 dark:border-green-900',
     activeColor: 'bg-green-600 text-white border-green-600',
-    value: 1.0,
   },
   half: {
     label: 'Half',
-    color: 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900',
+    color:
+      'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900',
     activeColor: 'bg-amber-500 text-white border-amber-500',
-    value: 0.5,
   },
   absent: {
     label: 'Absent',
-    color: 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-900',
+    color:
+      'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-900',
     activeColor: 'bg-red-600 text-white border-red-600',
-    value: 0,
   },
   holiday: {
     label: 'Holiday',
-    color: 'bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-900',
+    color:
+      'bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-900',
     activeColor: 'bg-purple-600 text-white border-purple-600',
-    value: 0,
   },
 };
-
-function todayStr() {
-  const d = new Date();
-  const tz = d.getTimezoneOffset() * 60000;
-  return new Date(d.getTime() - tz).toISOString().slice(0, 10);
-}
 
 type LocalEntry = {
   status: AttendanceStatus;
@@ -60,42 +56,93 @@ type LocalEntry = {
 type ToastState = { visible: boolean; message: string; type: 'saving' | 'saved' | 'error' };
 
 export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
-  const [date, setDate] = useState(todayStr());
+  const [date, setDate] = useState(todayStr);
   const { records, loading, saveRecord, saveAll, markHoliday } = useAttendance(date);
   const [savingWorkerId, setSavingWorkerId] = useState<string | null>(null);
   const [showHolidayModal, setShowHolidayModal] = useState(false);
   const [toast, setToast] = useState<ToastState>({ visible: false, message: '', type: 'saving' });
+
   const localRef = useRef<Record<string, LocalEntry>>({});
+  const hydratedDateRef = useRef<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const activeWorkers = workers.filter((w) => w.active);
-
-  useEffect(() => {
-    const fresh: Record<string, LocalEntry> = {};
-    activeWorkers.forEach((w) => {
-      const r = records[w.id];
-      fresh[w.id] = {
-        status: r?.status ?? 'absent',
-        overtimeHours: r?.overtimeHours ?? 0,
-        amountPaid: r?.amountPaid ?? 0,
-        remark: r?.remark ?? '',
-        isDirty: false,
-      };
-    });
-    localRef.current = fresh;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [records, date, workers]);
+  const activeWorkers = useMemo(() => workers.filter((w) => w.active), [workers]);
+  const activeWorkerKey = useMemo(() => activeWorkers.map((w) => w.id).join('|'), [activeWorkers]);
 
   const [, setRenderTick] = useState(0);
   const forceRender = useCallback(() => setRenderTick((t) => t + 1), []);
 
+  /**
+   * Hydrate local state from server ONLY when:
+   *  - the date changes (hard reset), or
+   *  - a worker is added to the list.
+   *
+   * Dirty (unsaved) local edits are NEVER overwritten by incoming server
+   * snapshots, so auto-saves on one worker no longer wipe in-progress edits
+   * on another worker.
+   */
+  useEffect(() => {
+    const dateChanged = hydratedDateRef.current !== date;
+    const current = localRef.current;
+    const fresh: Record<string, LocalEntry> = {};
+    let changed = false;
+
+    activeWorkers.forEach((w) => {
+      const existing = current[w.id];
+      const serverRecord = records[w.id];
+
+      if (!dateChanged && existing && existing.isDirty) {
+        fresh[w.id] = existing;
+        return;
+      }
+
+      // Preserve existing local state if it already matches the server.
+      if (!dateChanged && existing && serverRecord) {
+        const unchanged =
+          existing.status === serverRecord.status &&
+          existing.overtimeHours === serverRecord.overtimeHours &&
+          existing.amountPaid === serverRecord.amountPaid &&
+          existing.remark === serverRecord.remark;
+        if (unchanged) {
+          fresh[w.id] = existing;
+          return;
+        }
+      }
+
+      fresh[w.id] = {
+        status: serverRecord?.status ?? 'absent',
+        overtimeHours: serverRecord?.overtimeHours ?? 0,
+        amountPaid: serverRecord?.amountPaid ?? 0,
+        remark: serverRecord?.remark ?? '',
+        isDirty: false,
+      };
+      changed = true;
+    });
+
+    // Detect removed workers.
+    if (Object.keys(current).length !== Object.keys(fresh).length) changed = true;
+
+    localRef.current = fresh;
+    hydratedDateRef.current = date;
+    if (dateChanged || changed) forceRender();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date, records, activeWorkerKey, forceRender]);
+
   const showToast = useCallback((message: string, type: ToastState['type']) => {
     setToast({ visible: true, message, type });
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => {
-      setToast((prev) => ({ ...prev, visible: false }));
-    }, 1800);
+    toastTimer.current = setTimeout(
+      () => setToast((prev) => ({ ...prev, visible: false })),
+      1800
+    );
   }, []);
+
+  useEffect(
+    () => () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    },
+    []
+  );
 
   const getStatus = (workerId: string): AttendanceStatus =>
     localRef.current[workerId]?.status ?? records[workerId]?.status ?? 'absent';
@@ -133,9 +180,15 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
       const entry = localRef.current[workerId];
       if (!entry) return;
       setSavingWorkerId(workerId);
-      showToast('Saving...', 'saving');
+      showToast('Saving…', 'saving');
       try {
-        await saveRecord(workerId, entry.status, entry.overtimeHours, entry.amountPaid, entry.remark);
+        await saveRecord(
+          workerId,
+          entry.status,
+          entry.overtimeHours,
+          entry.amountPaid,
+          entry.remark
+        );
         if (localRef.current[workerId]) {
           localRef.current[workerId].isDirty = false;
         }
@@ -156,11 +209,14 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
   };
 
   const setOvertime = (workerId: string, ot: number) => {
-    updateLocalField(workerId, { overtimeHours: Math.max(0, Math.round(ot * 100) / 100) });
+    updateLocalField(workerId, {
+      overtimeHours: Math.max(0, Math.round(ot * 100) / 100),
+    });
     autoSave(workerId);
   };
 
-  const adjustOT = (workerId: string, delta: number) => setOvertime(workerId, getOT(workerId) + delta);
+  const adjustOT = (workerId: string, delta: number) =>
+    setOvertime(workerId, getOT(workerId) + delta);
 
   const setAmountPaid = (workerId: string, amountPaid: number) =>
     updateLocalField(workerId, { amountPaid: Math.max(0, amountPaid) });
@@ -171,9 +227,15 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
     const entry = localRef.current[workerId];
     if (!entry) return;
     setSavingWorkerId(workerId);
-    showToast('Saving...', 'saving');
+    showToast('Saving…', 'saving');
     try {
-      await saveRecord(workerId, entry.status, entry.overtimeHours, entry.amountPaid, entry.remark);
+      await saveRecord(
+        workerId,
+        entry.status,
+        entry.overtimeHours,
+        entry.amountPaid,
+        entry.remark
+      );
       if (localRef.current[workerId]) {
         localRef.current[workerId].isDirty = false;
       }
@@ -210,7 +272,7 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
       };
     });
 
-    showToast('Saving all...', 'saving');
+    showToast('Saving all…', 'saving');
     try {
       await saveAll(entries);
       activeWorkers.forEach((w) => {
@@ -234,13 +296,6 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
     } catch (err) {
       showToast((err as Error).message, 'error');
     }
-  };
-
-  const shiftDate = (days: number) => {
-    const d = new Date(date + 'T00:00:00');
-    d.setDate(d.getDate() + days);
-    const tz = d.getTimezoneOffset() * 60000;
-    setDate(new Date(d.getTime() - tz).toISOString().slice(0, 10));
   };
 
   const summary = activeWorkers.reduce(
@@ -282,7 +337,7 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
       <div className="flex flex-col sm:flex-row gap-3 mb-4 items-center flex-wrap">
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <button
-            onClick={() => shiftDate(-1)}
+            onClick={() => setDate(shiftDateStr(date, -1))}
             className="p-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors active:scale-95"
           >
             <ChevronLeft className="w-5 h-5 text-slate-600 dark:text-slate-300" />
@@ -297,7 +352,7 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
             />
           </div>
           <button
-            onClick={() => shiftDate(1)}
+            onClick={() => setDate(shiftDateStr(date, 1))}
             className="p-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors active:scale-95"
           >
             <ChevronRight className="w-5 h-5 text-slate-600 dark:text-slate-300" />
@@ -327,7 +382,6 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
           </>
         )}
         <div className="flex-1" />
-
         <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-100 dark:bg-zinc-800 text-xs font-semibold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-zinc-700">
           <Check className="w-4 h-4 text-emerald-500" />
           <span className="text-emerald-600 dark:text-emerald-400">Auto-saved</span>
@@ -335,41 +389,16 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
-        <SummaryCard
-          label="Present"
-          value={summary.present}
-          color="text-emerald-600 dark:text-emerald-400"
-          bg="bg-emerald-50 dark:bg-emerald-950/30"
-        />
-        <SummaryCard
-          label="Half Day"
-          value={summary.half}
-          color="text-amber-600 dark:text-amber-400"
-          bg="bg-amber-50 dark:bg-amber-950/30"
-        />
-        <SummaryCard
-          label="Absent"
-          value={summary.absent}
-          color="text-rose-600 dark:text-rose-400"
-          bg="bg-rose-50 dark:bg-rose-950/30"
-        />
-        <SummaryCard
-          label="Holiday"
-          value={summary.holiday}
-          color="text-purple-600 dark:text-purple-400"
-          bg="bg-purple-50 dark:bg-purple-950/30"
-        />
-        <SummaryCard
-          label="OT Hours"
-          value={summary.ot.toFixed(1)}
-          color="text-blue-600 dark:text-blue-400"
-          bg="bg-blue-50 dark:bg-blue-950/30"
-        />
+        <SummaryCard label="Present" value={summary.present} color="text-emerald-600 dark:text-emerald-400" bg="bg-emerald-50 dark:bg-emerald-950/30" />
+        <SummaryCard label="Half Day" value={summary.half} color="text-amber-600 dark:text-amber-400" bg="bg-amber-50 dark:bg-amber-950/30" />
+        <SummaryCard label="Absent" value={summary.absent} color="text-rose-600 dark:text-rose-400" bg="bg-rose-50 dark:bg-rose-950/30" />
+        <SummaryCard label="Holiday" value={summary.holiday} color="text-purple-600 dark:text-purple-400" bg="bg-purple-50 dark:bg-purple-950/30" />
+        <SummaryCard label="OT Hours" value={summary.ot.toFixed(1)} color="text-blue-600 dark:text-blue-400" bg="bg-blue-50 dark:bg-blue-950/30" />
       </div>
 
       {loading ? (
         <div className="flex items-center justify-center py-16 text-slate-400">
-          <Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading attendance...
+          <Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading attendance…
         </div>
       ) : activeWorkers.length === 0 ? (
         <div className="text-center py-16 text-slate-500 dark:text-slate-400 font-medium">
@@ -387,15 +416,12 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
             const onHoliday = isHolidayFor(worker.id);
             const holidayReason = records[worker.id]?.holidayReason;
 
-            const dailyEarned =
-              status === 'holiday'
-                ? 0
-                : (status === 'present'
-                    ? worker.dailyWage
-                    : status === 'half'
-                    ? worker.dailyWage * 0.5
-                    : 0) +
-                  ot * worker.overtimeHourlyRate;
+            const dailyEarned = calculateDailyEarned({
+              status,
+              dailyWage: worker.dailyWage,
+              overtimeHours: ot,
+              overtimeHourlyRate: worker.overtimeHourlyRate,
+            });
             const dailyBalance = dailyEarned - amountPaid;
 
             return (
@@ -420,7 +446,7 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
                         {worker.name}
                       </h3>
                       <p className="text-xs text-slate-500 dark:text-slate-400">
-                        {worker.role} &#183; &#8377;{worker.dailyWage.toFixed(0)}/day
+                        {worker.role} · ₹{worker.dailyWage.toFixed(0)}/day
                       </p>
                     </div>
                   </button>
@@ -436,7 +462,7 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
                       }`}
                     >
                       <span>Net Due:</span>
-                      <span>&#8377;{dailyBalance.toFixed(0)}</span>
+                      <span>₹{dailyBalance.toFixed(0)}</span>
                     </div>
                   </div>
                 </div>
@@ -515,11 +541,11 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
                 <div className="flex flex-col sm:flex-row gap-3 items-stretch pt-2 border-t border-slate-100 dark:border-zinc-800">
                   <div className="flex items-center gap-2 sm:w-72">
                     <label className="text-xs font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                      Amount Paid Today (&#8377;)
+                      Amount Paid Today (₹)
                     </label>
                     <div className="relative flex-1">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-semibold">
-                        &#8377;
+                        ₹
                       </span>
                       <input
                         type="number"
@@ -559,7 +585,7 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
                       {isSavingThis ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Saving...</span>
+                          <span>Saving…</span>
                         </>
                       ) : isDirty ? (
                         <>
@@ -658,9 +684,7 @@ function HolidayModal({
               <CalendarOff className="w-5 h-5 text-purple-600 dark:text-purple-400" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                Declare Holiday
-              </h2>
+              <h2 className="text-base font-bold text-slate-900 dark:text-white">Declare Holiday</h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">{dateLabel}</p>
             </div>
           </div>

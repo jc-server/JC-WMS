@@ -1,46 +1,108 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Plus, Search, Pencil, Trash2, Phone, Loader2, X, Users, Settings2,
+  UserCheck, UserX, RotateCcw,
 } from 'lucide-react';
 import { useWorkers, type Worker } from '@/hooks/useWorkers';
 import { useRoles } from '@/hooks/useRoles';
 import ManageRolesModal from '@/components/ManageRolesModal';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 type Props = {
   onOpenProfile: (worker: Worker) => void;
 };
 
 export default function WorkerManagement({ onOpenProfile }: Props) {
-  const { workers, loading, addWorker, updateWorker, deleteWorker } = useWorkers();
+  const {
+    workers,
+    loading,
+    addWorker,
+    updateWorker,
+    deleteWorker,
+    reactivateWorker,
+  } = useWorkers();
   const { roles, addRole, updateRole, deleteRole } = useRoles();
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('active');
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Worker | null>(null);
   const [showRolesModal, setShowRolesModal] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<Worker | null>(null);
+  const [deletingBusy, setDeletingBusy] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const filtered = workers.filter((w) => {
-    const matchesSearch =
-      w.name.toLowerCase().includes(search.toLowerCase()) || (w.phone ?? '').includes(search);
-    const matchesRole = roleFilter === 'all' || w.role === roleFilter;
-    return matchesSearch && matchesRole;
-  });
+  const filtered = useMemo(() => {
+    return workers.filter((w) => {
+      if (statusFilter === 'active' && !w.active) return false;
+      if (statusFilter === 'inactive' && w.active) return false;
+      const matchesSearch =
+        w.name.toLowerCase().includes(search.toLowerCase()) ||
+        (w.phone ?? '').includes(search);
+      const matchesRole = roleFilter === 'all' || w.role === roleFilter;
+      return matchesSearch && matchesRole;
+    });
+  }, [workers, search, roleFilter, statusFilter]);
 
-  const filterRoles = [...new Set(workers.map((w) => w.role))].sort();
+  const filterRoles = useMemo(
+    () => [...new Set(workers.map((w) => w.role))].sort(),
+    [workers]
+  );
+
+  const activeCount = workers.filter((w) => w.active).length;
+  const inactiveCount = workers.length - activeCount;
+
+  /**
+   * Cascade role rename: update the role list AND all workers using it.
+   * Prevents orphaned / dangling role strings.
+   */
+  const handleUpdateRole = async (oldName: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName) return;
+    await updateRole(oldName, trimmed);
+    const affected = workers.filter((w) => w.role === oldName);
+    await Promise.all(
+      affected.map((w) => updateWorker(w.id, { role: trimmed }))
+    );
+  };
+
+  /**
+   * Cascade role delete: reassign workers using the deleted role to a fallback.
+   */
+  const handleDeleteRole = async (role: string) => {
+    await deleteRole(role);
+    const fallback = roles.filter((r) => r !== role)[0] ?? 'Worker';
+    const affected = workers.filter((w) => w.role === role);
+    await Promise.all(
+      affected.map((w) => updateWorker(w.id, { role: fallback }))
+    );
+  };
 
   const handleEdit = (worker: Worker) => {
     setEditing(worker);
     setShowForm(true);
   };
 
-  const handleDelete = async (worker: Worker) => {
-    if (
-      !confirm(
-        `Delete ${worker.name}? This also removes their attendance and advance records.`
-      )
-    )
-      return;
-    await deleteWorker(worker.id);
+  const handleDeleteConfirm = async () => {
+    if (!pendingDelete) return;
+    setDeletingBusy(true);
+    try {
+      await deleteWorker(pendingDelete.id);
+      setPendingDelete(null);
+    } catch (err) {
+      console.error('Delete worker error:', err);
+      setErrorMessage((err as Error).message);
+    } finally {
+      setDeletingBusy(false);
+    }
+  };
+
+  const handleReactivate = async (worker: Worker) => {
+    try {
+      await reactivateWorker(worker.id);
+    } catch (err) {
+      setErrorMessage((err as Error).message);
+    }
   };
 
   return (
@@ -51,7 +113,7 @@ export default function WorkerManagement({ onOpenProfile }: Props) {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name or phone..."
+            placeholder="Search by name or phone…"
             className="w-full pl-11 pr-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all text-slate-900 dark:text-white"
           />
         </div>
@@ -67,6 +129,15 @@ export default function WorkerManagement({ onOpenProfile }: Props) {
             </option>
           ))}
         </select>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+          className="px-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none transition-all text-slate-900 dark:text-white font-medium text-sm"
+        >
+          <option value="active">Active ({activeCount})</option>
+          <option value="inactive">Inactive ({inactiveCount})</option>
+          <option value="all">All ({workers.length})</option>
+        </select>
         <button
           onClick={() => {
             setEditing(null);
@@ -80,7 +151,7 @@ export default function WorkerManagement({ onOpenProfile }: Props) {
 
       {loading ? (
         <div className="flex items-center justify-center py-16 text-slate-400">
-          <Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading workers...
+          <Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading workers…
         </div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-16">
@@ -88,7 +159,7 @@ export default function WorkerManagement({ onOpenProfile }: Props) {
           <p className="text-slate-500 dark:text-slate-400 font-medium">
             {workers.length === 0
               ? 'No workers yet. Add your first worker to get started.'
-              : 'No workers match your search.'}
+              : 'No workers match your filters.'}
           </p>
         </div>
       ) : (
@@ -96,21 +167,38 @@ export default function WorkerManagement({ onOpenProfile }: Props) {
           {filtered.map((worker) => (
             <div
               key={worker.id}
-              className="bg-white dark:bg-zinc-900 rounded-2xl p-5 border border-slate-200 dark:border-zinc-800 hover:shadow-lg hover:border-slate-300 dark:hover:border-zinc-700 transition-all group cursor-pointer"
+              className={`bg-white dark:bg-zinc-900 rounded-2xl p-5 border hover:shadow-lg transition-all group cursor-pointer ${
+                worker.active
+                  ? 'border-slate-200 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700'
+                  : 'border-dashed border-slate-300 dark:border-zinc-700 opacity-75'
+              }`}
               onClick={() => onOpenProfile(worker)}
             >
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 bg-amber-100 dark:bg-amber-900/40 rounded-xl flex items-center justify-center font-bold text-amber-700 dark:text-amber-400 text-lg">
+                  <div
+                    className={`w-11 h-11 rounded-xl flex items-center justify-center font-bold text-lg ${
+                      worker.active
+                        ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400'
+                        : 'bg-slate-200 dark:bg-zinc-700 text-slate-500 dark:text-slate-400'
+                    }`}
+                  >
                     {worker.name.charAt(0).toUpperCase()}
                   </div>
                   <div>
                     <h3 className="font-semibold text-slate-900 dark:text-white hover:text-amber-600 dark:hover:text-amber-400 transition-colors">
                       {worker.name}
                     </h3>
-                    <span className="inline-block mt-0.5 text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300">
-                      {worker.role}
-                    </span>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300">
+                        {worker.role}
+                      </span>
+                      {!worker.active && (
+                        <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-zinc-700 text-slate-500 dark:text-slate-400 uppercase">
+                          <UserX className="w-2.5 h-2.5" /> Inactive
+                        </span>
+                      )}
+                    </div>
                     {worker.phone && (
                       <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-1">
                         <Phone className="w-3 h-3" /> {worker.phone}
@@ -125,31 +213,46 @@ export default function WorkerManagement({ onOpenProfile }: Props) {
                       handleEdit(worker);
                     }}
                     className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+                    title="Edit"
                   >
                     <Pencil className="w-4 h-4" />
                   </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDelete(worker);
-                    }}
-                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {worker.active ? (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPendingDelete(worker);
+                      }}
+                      className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
+                      title="Deactivate (soft delete)"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleReactivate(worker);
+                      }}
+                      className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors"
+                      title="Reactivate"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="flex gap-2">
                 <div className="flex-1 bg-slate-50 dark:bg-zinc-800 rounded-lg px-3 py-2">
                   <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">Daily Wage</p>
                   <p className="font-bold text-slate-900 dark:text-white text-sm">
-                    &#8377;{worker.dailyWage.toFixed(0)}
+                    ₹{worker.dailyWage.toFixed(0)}
                   </p>
                 </div>
                 <div className="flex-1 bg-slate-50 dark:bg-zinc-800 rounded-lg px-3 py-2">
                   <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">OT Rate/hr</p>
                   <p className="font-bold text-slate-900 dark:text-white text-sm">
-                    &#8377;{worker.overtimeHourlyRate.toFixed(0)}
+                    ₹{worker.overtimeHourlyRate.toFixed(0)}
                   </p>
                 </div>
               </div>
@@ -178,13 +281,39 @@ export default function WorkerManagement({ onOpenProfile }: Props) {
       {showRolesModal && (
         <ManageRolesModal
           roles={roles}
-          workerRoles={workers.map((w) => w.role)}
+          workerRoles={workers.filter((w) => w.active).map((w) => w.role)}
           onAdd={addRole}
-          onUpdate={updateRole}
-          onDelete={deleteRole}
+          onUpdate={handleUpdateRole}
+          onDelete={handleDeleteRole}
           onClose={() => setShowRolesModal(false)}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Deactivate Worker?"
+        message={
+          pendingDelete
+            ? `Deactivate ${pendingDelete.name}? They will be hidden from attendance but their history (attendance, advances, wage slips) will remain intact. You can reactivate them anytime.`
+            : ''
+        }
+        confirmLabel="Deactivate"
+        cancelLabel="Keep Active"
+        variant="warning"
+        busy={deletingBusy}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={handleDeleteConfirm}
+      />
+
+      <ConfirmDialog
+        open={errorMessage !== null}
+        mode="alert"
+        variant="danger"
+        title="Something Went Wrong"
+        message={errorMessage ?? ''}
+        confirmLabel="OK"
+        onCancel={() => setErrorMessage(null)}
+      />
     </div>
   );
 }
@@ -302,7 +431,7 @@ function WorkerForm({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                Daily Wage (&#8377;)
+                Daily Wage (₹)
               </label>
               <input
                 required
@@ -317,7 +446,7 @@ function WorkerForm({
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                OT Rate / hr (&#8377;)
+                OT Rate / hr (₹)
               </label>
               <input
                 required

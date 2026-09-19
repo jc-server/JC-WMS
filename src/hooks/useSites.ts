@@ -8,6 +8,8 @@ import {
   onSnapshot,
   query,
   orderBy,
+  getDocs,
+  writeBatch,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
@@ -19,7 +21,7 @@ export type Site = {
   name: string;
   clientName: string;
   clientPhone: string;
-  startDate: string; // YYYY-MM-DD
+  startDate: string;
   status: SiteStatus;
   createdAt: number;
 };
@@ -108,10 +110,23 @@ export function useSites() {
     [user]
   );
 
+  /**
+   * Deletes a site AND all of its transactions.
+   * Firestore does NOT cascade deletes — we do it manually in batches.
+   */
   const deleteSite = useCallback(
     async (id: string) => {
       if (!user) throw new Error('Not signed in.');
       try {
+        const txSnap = await getDocs(
+          collection(db, 'users', user.uid, 'sites', id, 'transactions')
+        );
+        const docs = txSnap.docs;
+        for (let i = 0; i < docs.length; i += 450) {
+          const batch = writeBatch(db);
+          docs.slice(i, i + 450).forEach((d) => batch.delete(d.ref));
+          await batch.commit();
+        }
         await deleteDoc(doc(db, 'users', user.uid, 'sites', id));
       } catch (err) {
         console.error('deleteSite error:', err);

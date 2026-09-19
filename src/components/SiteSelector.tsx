@@ -3,6 +3,7 @@ import {
   MapPin, Plus, X, ChevronDown, Trash2, Loader2, User, Phone, CalendarDays,
 } from 'lucide-react';
 import { useSites, type Site, type SiteInput, type SiteStatus } from '@/hooks/useSites';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 type Props = {
   currentSiteId: string | null;
@@ -13,15 +14,23 @@ export default function SiteSelector({ currentSiteId, onSelectSite }: Props) {
   const { sites, loading, addSite, deleteSite } = useSites();
   const [open, setOpen] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<Site | null>(null);
+  const [deletingBusy, setDeletingBusy] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const currentSite = sites.find((s) => s.id === currentSiteId);
 
-  const handleDelete = async (site: Site) => {
-    if (!confirm(`Delete site "${site.name}" and all its data?`)) return;
+  const handleDeleteConfirm = async () => {
+    if (!pendingDelete) return;
+    setDeletingBusy(true);
     try {
-      await deleteSite(site.id);
+      await deleteSite(pendingDelete.id);
+      setPendingDelete(null);
     } catch (err) {
-      alert((err as Error).message);
+      setPendingDelete(null);
+      setErrorMessage((err as Error).message);
+    } finally {
+      setDeletingBusy(false);
     }
   };
 
@@ -89,9 +98,11 @@ export default function SiteSelector({ currentSiteId, onSelectSite }: Props) {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleDelete(site);
+                      setPendingDelete(site);
+                      setOpen(false);
                     }}
                     className="p-1 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                    title="Delete site"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -121,6 +132,32 @@ export default function SiteSelector({ currentSiteId, onSelectSite }: Props) {
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete Site?"
+        message={
+          pendingDelete
+            ? `This will permanently delete "${pendingDelete.name}" and its entire ledger (transactions, expenses, client payments). Worker attendance and advances are not affected. This action cannot be undone.`
+            : ''
+        }
+        confirmLabel="Delete Site"
+        cancelLabel="Keep it"
+        variant="danger"
+        busy={deletingBusy}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={handleDeleteConfirm}
+      />
+
+      <ConfirmDialog
+        open={errorMessage !== null}
+        mode="alert"
+        variant="danger"
+        title="Could Not Delete Site"
+        message={errorMessage ?? ''}
+        confirmLabel="OK"
+        onCancel={() => setErrorMessage(null)}
+      />
     </>
   );
 }

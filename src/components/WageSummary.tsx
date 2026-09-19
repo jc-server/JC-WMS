@@ -5,6 +5,9 @@ import {
 import { useAdvances } from '@/hooks/useAdvances';
 import { useMonthlyAttendance } from '@/hooks/useAttendance';
 import type { Worker } from '@/hooks/useWorkers';
+import { rowsToCsv, downloadCsv } from '@/utils/csv';
+import { currentMonthStr, monthLabel, monthRange } from '@/utils/date';
+import { calculateAggregateWages } from '@/utils/calculations';
 
 type Props = {
   workers: Worker[];
@@ -27,35 +30,25 @@ type WageSummary = {
   netPayable: number;
 };
 
-function getMonthInfo(monthStr: string) {
-  const [year, month] = monthStr.split('-').map(Number);
-  const start = new Date(year, month - 1, 1);
-  return {
-    start: start.toISOString().slice(0, 10),
-    label: start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
-  };
-}
-
-function currentMonthStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-
 export default function WageSummaryView({ workers, onOpenProfile }: Props) {
-  const [month, setMonth] = useState(currentMonthStr());
+  const [month, setMonth] = useState(currentMonthStr);
   const [showAdvanceModal, setShowAdvanceModal] = useState(false);
   const [ledgerWorker, setLedgerWorker] = useState<Worker | null>(null);
 
   const { records: monthAtt, loading: attLoading } = useMonthlyAttendance(month);
-  const { getAdvancesForMonth, getAdvancesForWorker, addAdvance, loading: advLoading } =
-    useAdvances();
+  const {
+    getAdvancesForMonth,
+    getAdvancesForWorker,
+    addAdvance,
+    loading: advLoading,
+  } = useAdvances();
 
   const monthAdvances = getAdvancesForMonth(month);
+  const activeWorkers = workers.filter((w) => w.active);
 
-  const summaries: WageSummary[] = workers.map((worker) => {
+  const summaries: WageSummary[] = activeWorkers.map((worker) => {
     const att =
-      monthAtt[worker.id] ??
-      {
+      monthAtt[worker.id] ?? {
         present: 0,
         half: 0,
         absent: 0,
@@ -64,10 +57,18 @@ export default function WageSummaryView({ workers, onOpenProfile }: Props) {
         amountPaid: 0,
         advanceAmount: 0,
       };
-    const grossWages =
-      att.present * worker.dailyWage +
-      att.half * 0.5 * worker.dailyWage +
-      att.otHours * worker.overtimeHourlyRate;
+
+    const grossWages = calculateAggregateWages(
+      {
+        present: att.present,
+        half: att.half,
+        absent: att.absent,
+        holiday: att.holiday,
+        otHours: att.otHours,
+      },
+      worker.dailyWage,
+      worker.overtimeHourlyRate
+    );
 
     const standaloneAdvances = monthAdvances
       .filter((a) => a.workerId === worker.id)
@@ -129,11 +130,11 @@ export default function WageSummaryView({ workers, onOpenProfile }: Props) {
   const loading = attLoading || advLoading;
 
   const exportCSV = () => {
-    const monthInfo = getMonthInfo(month);
     const headers = [
       'Worker Name', 'Phone', 'Role', 'Daily Wage', 'OT Rate/hr',
       'Present Days', 'Half Days', 'Absent Days', 'Holiday Days', 'OT Hours',
-      'Gross Wages', 'Daily Paid', 'Khata Advances', 'Attendance Advances', 'Total Advances', 'Total Paid', 'Net Payable',
+      'Gross Wages', 'Daily Paid', 'Khata Advances', 'Attendance Advances',
+      'Total Advances', 'Total Paid', 'Net Payable',
     ];
 
     const rows = summaries.map((s) => [
@@ -148,25 +149,15 @@ export default function WageSummaryView({ workers, onOpenProfile }: Props) {
     const totalsRow = [
       'TOTAL', '', '', '', '',
       totals.presentDays, totals.halfDays, '', totals.holidayDays, totals.otHours.toFixed(2),
-      totals.grossWages.toFixed(2), totals.dailyPaid.toFixed(2), totals.standaloneAdvances.toFixed(2),
-      totals.attendanceAdvances.toFixed(2), totals.totalAdvances.toFixed(2),
-      totals.totalPaid.toFixed(2), totals.netPayable.toFixed(2),
+      totals.grossWages.toFixed(2), totals.dailyPaid.toFixed(2),
+      totals.standaloneAdvances.toFixed(2), totals.attendanceAdvances.toFixed(2),
+      totals.totalAdvances.toFixed(2), totals.totalPaid.toFixed(2), totals.netPayable.toFixed(2),
     ];
 
-    const csv = [headers, ...rows, totalsRow]
-      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-      .join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `JC-WMS_Wage_Report_${monthInfo.start}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    const csv = rowsToCsv([headers, ...rows, totalsRow]);
+    const { start } = monthRange(month);
+    downloadCsv(`JC-WMS_Wage_Report_${start}.csv`, csv);
   };
-
-  const monthInfo = getMonthInfo(month);
 
   return (
     <div>
@@ -196,19 +187,19 @@ export default function WageSummaryView({ workers, onOpenProfile }: Props) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <StatCard
           label="Gross Wages"
-          value={`\u20B9${totals.grossWages.toFixed(0)}`}
+          value={`₹${totals.grossWages.toFixed(0)}`}
           color="text-blue-600 dark:text-blue-400"
           bg="bg-blue-50 dark:bg-blue-950/30"
         />
         <StatCard
           label="Total Paid"
-          value={`\u20B9${totals.totalPaid.toFixed(0)}`}
+          value={`₹${totals.totalPaid.toFixed(0)}`}
           color="text-slate-900 dark:text-white"
           bg="bg-slate-100 dark:bg-zinc-800"
         />
         <StatCard
           label="Net Payable"
-          value={`\u20B9${totals.netPayable.toFixed(0)}`}
+          value={`₹${totals.netPayable.toFixed(0)}`}
           color="text-white"
           bg={
             totals.netPayable > 0
@@ -228,11 +219,11 @@ export default function WageSummaryView({ workers, onOpenProfile }: Props) {
 
       {loading ? (
         <div className="flex items-center justify-center py-16 text-slate-400">
-          <Loader2 className="w-6 h-6 animate-spin mr-2" /> Calculating wages...
+          <Loader2 className="w-6 h-6 animate-spin mr-2" /> Calculating wages…
         </div>
       ) : summaries.length === 0 ? (
         <div className="text-center py-16 text-slate-500 dark:text-slate-400 font-medium">
-          No workers to summarize. Add workers in the Workers tab.
+          No active workers to summarize. Add workers in the Workers tab.
         </div>
       ) : (
         <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800 overflow-hidden">
@@ -270,7 +261,7 @@ export default function WageSummaryView({ workers, onOpenProfile }: Props) {
                             {s.worker.name}
                           </p>
                           <p className="text-xs text-slate-500 dark:text-slate-400">
-                            {s.worker.role} &#183; &#8377;{s.worker.dailyWage.toFixed(0)}/day
+                            {s.worker.role} · ₹{s.worker.dailyWage.toFixed(0)}/day
                           </p>
                         </div>
                       </button>
@@ -285,13 +276,13 @@ export default function WageSummaryView({ workers, onOpenProfile }: Props) {
                       {s.otHours.toFixed(1)}
                     </td>
                     <td className="text-right px-2 py-3 text-sm font-semibold text-slate-900 dark:text-white">
-                      &#8377;{s.grossWages.toFixed(0)}
+                      ₹{s.grossWages.toFixed(0)}
                     </td>
                     <td className="text-right px-2 py-3 text-sm font-medium text-blue-700 dark:text-blue-400">
-                      &#8377;{s.dailyPaid.toFixed(0)}
+                      ₹{s.dailyPaid.toFixed(0)}
                     </td>
                     <td className="text-right px-2 py-3 text-sm font-medium text-slate-600 dark:text-slate-300">
-                      &#8377;{s.totalAdvances.toFixed(0)}
+                      ₹{s.totalAdvances.toFixed(0)}
                     </td>
                     <td
                       className={`text-right px-3 py-3 text-sm font-bold ${
@@ -302,7 +293,7 @@ export default function WageSummaryView({ workers, onOpenProfile }: Props) {
                           : 'text-slate-500 dark:text-slate-400'
                       }`}
                     >
-                      &#8377;{s.netPayable.toFixed(0)}
+                      ₹{s.netPayable.toFixed(0)}
                     </td>
                     <td className="px-2 py-3">
                       <button
@@ -317,19 +308,19 @@ export default function WageSummaryView({ workers, onOpenProfile }: Props) {
                 ))}
                 <tr className="bg-slate-50 dark:bg-zinc-800 font-bold">
                   <td className="px-4 py-3 text-slate-900 dark:text-white text-sm" colSpan={3}>
-                    TOTAL ({monthInfo.label})
+                    TOTAL ({monthLabel(month)})
                   </td>
                   <td className="text-center px-2 py-3 text-sm text-blue-700 dark:text-blue-400">
                     {totals.otHours.toFixed(1)}
                   </td>
                   <td className="text-right px-2 py-3 text-sm text-slate-900 dark:text-white">
-                    &#8377;{totals.grossWages.toFixed(0)}
+                    ₹{totals.grossWages.toFixed(0)}
                   </td>
                   <td className="text-right px-2 py-3 text-sm text-blue-700 dark:text-blue-400">
-                    &#8377;{totals.dailyPaid.toFixed(0)}
+                    ₹{totals.dailyPaid.toFixed(0)}
                   </td>
                   <td className="text-right px-2 py-3 text-sm text-slate-600 dark:text-slate-300">
-                    &#8377;{totals.totalAdvances.toFixed(0)}
+                    ₹{totals.totalAdvances.toFixed(0)}
                   </td>
                   <td
                     className={`text-right px-3 py-3 text-sm ${
@@ -340,7 +331,7 @@ export default function WageSummaryView({ workers, onOpenProfile }: Props) {
                         : 'text-slate-500 dark:text-slate-400'
                     }`}
                   >
-                    &#8377;{totals.netPayable.toFixed(0)}
+                    ₹{totals.netPayable.toFixed(0)}
                   </td>
                   <td></td>
                 </tr>
@@ -352,7 +343,7 @@ export default function WageSummaryView({ workers, onOpenProfile }: Props) {
 
       {showAdvanceModal && (
         <AdvanceModal
-          workers={workers}
+          workers={activeWorkers}
           onClose={() => setShowAdvanceModal(false)}
           onSaved={() => setShowAdvanceModal(false)}
           addAdvance={addAdvance}
@@ -476,7 +467,7 @@ function AdvanceModal({
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-              Amount (&#8377;)
+              Amount (₹)
             </label>
             <input
               required
@@ -554,7 +545,7 @@ function PassbookModal({
             <div>
               <h2 className="text-lg font-bold text-slate-900 dark:text-white">Passbook</h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                {worker.name} &#183; {worker.role}
+                {worker.name} · {worker.role}
               </p>
             </div>
           </div>
@@ -573,15 +564,15 @@ function PassbookModal({
                 Daily Wage
               </p>
               <p className="text-lg font-bold text-green-600 dark:text-green-400">
-                &#8377;{worker.dailyWage.toFixed(0)}
+                ₹{worker.dailyWage.toFixed(0)}
               </p>
             </div>
             <div className="bg-red-50 dark:bg-red-950/30 rounded-xl p-3 text-center">
               <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mb-1">
-                Total Advances
+                Total Advances (All Time)
               </p>
               <p className="text-lg font-bold text-red-600 dark:text-red-400">
-                &#8377;{totalAdvances.toFixed(0)}
+                ₹{totalAdvances.toFixed(0)}
               </p>
             </div>
           </div>
@@ -602,7 +593,7 @@ function PassbookModal({
                 >
                   <div>
                     <p className="font-semibold text-slate-900 dark:text-white text-sm">
-                      &#8377;{a.amount.toFixed(0)}
+                      ₹{a.amount.toFixed(0)}
                     </p>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
                       {new Date(a.date + 'T00:00:00').toLocaleDateString('en-IN', {
@@ -610,7 +601,7 @@ function PassbookModal({
                         month: 'short',
                         year: 'numeric',
                       })}
-                      {a.reason && ` \u00b7 ${a.reason}`}
+                      {a.reason && ` · ${a.reason}`}
                     </p>
                   </div>
                   <TrendingDown className="w-4 h-4 text-red-400" />

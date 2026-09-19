@@ -13,20 +13,12 @@ import {
 } from '@/hooks/useTransactions';
 import { useWageCalculator } from '@/hooks/useWageCalculator';
 import type { Worker } from '@/hooks/useWorkers';
+import ConfirmDialog from '@/components/ConfirmDialog';
+import { todayStr, monthStartStr } from '@/utils/date';
+import { rowsToCsv, downloadCsv } from '@/utils/csv';
 
 const LABOUR_CATEGORY = 'Labour / Worker Wages';
 const DEBIT_CATEGORIES_WITH_LABOUR: string[] = [LABOUR_CATEGORY, ...DEBIT_CATEGORIES];
-
-function todayStr() {
-  const d = new Date();
-  const tz = d.getTimezoneOffset() * 60000;
-  return new Date(d.getTime() - tz).toISOString().slice(0, 10);
-}
-
-function monthStartStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-}
 
 export default function SiteLedger() {
   const [siteId, setSiteId] = useState<string | null>(
@@ -53,6 +45,12 @@ export default function SiteLedger() {
   const [showReceive, setShowReceive] = useState(false);
   const [showExpense, setShowExpense] = useState(false);
   const [showBookLabour, setShowBookLabour] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{
+    id: string;
+    category: string;
+    amount: number;
+  } | null>(null);
+  const [deletingBusy, setDeletingBusy] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'saved' | 'error' } | null>(null);
 
   const [filterType, setFilterType] = useState<'all' | 'credit' | 'debit' | 'labour'>('all');
@@ -109,16 +107,11 @@ export default function SiteLedger() {
       t.remark,
       t.type === 'credit' ? `+${t.amount.toFixed(2)}` : `-${t.amount.toFixed(2)}`,
     ]);
-    const csv = [headers, ...rows]
-      .map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
-      .join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `JC-WMS_Site_Ledger_${site?.name?.replace(/\s+/g, '_') ?? 'site'}_${Date.now()}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    const csv = rowsToCsv([headers, ...rows]);
+    downloadCsv(
+      `JC-WMS_Site_Ledger_${site?.name?.replace(/\s+/g, '_') ?? 'site'}_${Date.now()}.csv`,
+      csv
+    );
   };
 
   if (!siteId || !site) {
@@ -222,28 +215,28 @@ export default function SiteLedger() {
         <SummaryCard
           icon={TrendingUp}
           label="Total Revenue"
-          value={`\u20B9${totals.totalRevenue.toFixed(0)}`}
+          value={`₹${totals.totalRevenue.toFixed(0)}`}
           accent="text-emerald-600 dark:text-emerald-400"
           bg="bg-emerald-50 dark:bg-emerald-950/30"
         />
         <SummaryCard
           icon={HardHat}
           label="Labour Expenses"
-          value={`\u20B9${totals.totalLabour.toFixed(0)}`}
+          value={`₹${totals.totalLabour.toFixed(0)}`}
           accent="text-purple-600 dark:text-purple-400"
           bg="bg-purple-50 dark:bg-purple-950/30"
         />
         <SummaryCard
           icon={Package}
           label="Material / Other"
-          value={`\u20B9${totals.totalMaterial.toFixed(0)}`}
+          value={`₹${totals.totalMaterial.toFixed(0)}`}
           accent="text-orange-600 dark:text-orange-400"
           bg="bg-orange-50 dark:bg-orange-950/30"
         />
         <SummaryCard
           icon={Wallet}
           label="Combined Expenses"
-          value={`\u20B9${totals.totalCombined.toFixed(0)}`}
+          value={`₹${totals.totalCombined.toFixed(0)}`}
           accent="text-slate-900 dark:text-white"
           bg="bg-slate-100 dark:bg-zinc-800"
         />
@@ -251,7 +244,7 @@ export default function SiteLedger() {
           <div className="bg-green-500 dark:bg-green-600 rounded-xl p-3 text-center">
             <TrendingUp className="w-5 h-5 text-white mx-auto mb-1" />
             <p className="text-xl font-bold text-white leading-none">
-              &#8377;{totals.net.toFixed(0)}
+              ₹{totals.net.toFixed(0)}
             </p>
             <p className="text-[11px] text-white/90 font-semibold mt-1">Net Profit</p>
           </div>
@@ -259,14 +252,14 @@ export default function SiteLedger() {
           <div className="bg-red-500 dark:bg-red-600 rounded-xl p-3 text-center">
             <TrendingDown className="w-5 h-5 text-white mx-auto mb-1" />
             <p className="text-xl font-bold text-white leading-none">
-              &#8377;{Math.abs(totals.net).toFixed(0)}
+              ₹{Math.abs(totals.net).toFixed(0)}
             </p>
             <p className="text-[11px] text-white/90 font-semibold mt-1">Net Loss</p>
           </div>
         ) : (
           <div className="bg-slate-200 dark:bg-zinc-700 rounded-xl p-3 text-center">
             <IndianRupee className="w-5 h-5 text-slate-600 dark:text-slate-300 mx-auto mb-1" />
-            <p className="text-xl font-bold text-slate-700 dark:text-slate-200 leading-none">&#8377;0</p>
+            <p className="text-xl font-bold text-slate-700 dark:text-slate-200 leading-none">₹0</p>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold mt-1">
               Break-Even
             </p>
@@ -396,20 +389,19 @@ export default function SiteLedger() {
                             : 'text-orange-600 dark:text-orange-400'
                         }`}
                       >
-                        {isCredit ? '+' : '−'}&#8377;{r.amount.toFixed(0)}
+                        {isCredit ? '+' : '−'}₹{r.amount.toFixed(0)}
                       </td>
                       <td className="px-2 py-3 text-right">
                         <button
-                          onClick={async () => {
-                            if (!confirm('Delete this transaction?')) return;
-                            try {
-                              await deleteTransaction(r.id);
-                              showToast('Transaction deleted', 'saved');
-                            } catch (err) {
-                              showToast((err as Error).message, 'error');
-                            }
-                          }}
+                          onClick={() =>
+                            setPendingDelete({
+                              id: r.id,
+                              category: r.category,
+                              amount: r.amount,
+                            })
+                          }
                           className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
+                          title="Delete transaction"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -457,6 +449,36 @@ export default function SiteLedger() {
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete Transaction?"
+        message={
+          pendingDelete
+            ? `This will permanently remove the ₹${pendingDelete.amount.toFixed(
+                0
+              )} entry under "${pendingDelete.category}". This action cannot be undone.`
+            : ''
+        }
+        confirmLabel="Delete"
+        cancelLabel="Keep it"
+        variant="danger"
+        busy={deletingBusy}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={async () => {
+          if (!pendingDelete) return;
+          setDeletingBusy(true);
+          try {
+            await deleteTransaction(pendingDelete.id);
+            showToast('Transaction deleted', 'saved');
+            setPendingDelete(null);
+          } catch (err) {
+            showToast((err as Error).message, 'error');
+          } finally {
+            setDeletingBusy(false);
+          }
+        }}
+      />
     </div>
   );
 }
@@ -569,11 +591,11 @@ function TransactionModal({
         <form onSubmit={handleSave} className="p-5 space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-              Amount (&#8377;) <span className="text-red-500">*</span>
+              Amount (₹) <span className="text-red-500">*</span>
             </label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-semibold">
-                &#8377;
+                ₹
               </span>
               <input
                 autoFocus
@@ -808,7 +830,7 @@ function BookLabourPayoutModal({
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-600 dark:text-purple-400" />
               ) : (
                 <span className="text-sm font-bold text-purple-700 dark:text-purple-300">
-                  &#8377;{computedAmount.toFixed(0)}
+                  ₹{computedAmount.toFixed(0)}
                 </span>
               )}
             </div>
@@ -831,7 +853,7 @@ function BookLabourPayoutModal({
                       </span>
                     </span>
                     <span className="font-semibold whitespace-nowrap ml-2">
-                      &#8377;{b.wage.toFixed(0)}
+                      ₹{b.wage.toFixed(0)}
                     </span>
                   </div>
                 ))}
@@ -841,11 +863,11 @@ function BookLabourPayoutModal({
 
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-              Amount to Book (&#8377;) <span className="text-red-500">*</span>
+              Amount to Book (₹) <span className="text-red-500">*</span>
             </label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-semibold">
-                &#8377;
+                ₹
               </span>
               <input
                 required
@@ -867,7 +889,7 @@ function BookLabourPayoutModal({
                 onClick={() => setUserEdited(false)}
                 className="mt-1.5 text-xs text-purple-600 dark:text-purple-400 hover:underline font-semibold"
               >
-                Reset to computed &#8377;{computedAmount.toFixed(0)}
+                Reset to computed ₹{computedAmount.toFixed(0)}
               </button>
             )}
           </div>
