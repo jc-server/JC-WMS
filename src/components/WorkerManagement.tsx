@@ -1,18 +1,17 @@
 import { useState } from 'react';
 import {
-  Plus, Search, Pencil, Trash2, Phone, Loader2, X, Users, Briefcase, Settings2,
+  Plus, Search, Pencil, Trash2, Phone, Loader2, X, Users, Settings2,
 } from 'lucide-react';
 import { useWorkers, type Worker } from '@/hooks/useWorkers';
 import { useRoles } from '@/hooks/useRoles';
 import ManageRolesModal from '@/components/ManageRolesModal';
 
 type Props = {
-  siteId: string | null;
   onOpenProfile: (worker: Worker) => void;
 };
 
-export default function WorkerManagement({ siteId, onOpenProfile }: Props) {
-  const { workers, loading, addWorker, updateWorker, deleteWorker } = useWorkers(siteId);
+export default function WorkerManagement({ onOpenProfile }: Props) {
+  const { workers, loading, addWorker, updateWorker, deleteWorker } = useWorkers();
   const { roles, addRole, updateRole, deleteRole } = useRoles();
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
@@ -21,7 +20,8 @@ export default function WorkerManagement({ siteId, onOpenProfile }: Props) {
   const [showRolesModal, setShowRolesModal] = useState(false);
 
   const filtered = workers.filter((w) => {
-    const matchesSearch = w.name.toLowerCase().includes(search.toLowerCase()) || (w.phone ?? '').includes(search);
+    const matchesSearch =
+      w.name.toLowerCase().includes(search.toLowerCase()) || (w.phone ?? '').includes(search);
     const matchesRole = roleFilter === 'all' || w.role === roleFilter;
     return matchesSearch && matchesRole;
   });
@@ -34,7 +34,12 @@ export default function WorkerManagement({ siteId, onOpenProfile }: Props) {
   };
 
   const handleDelete = async (worker: Worker) => {
-    if (!confirm(`Delete ${worker.name}? This also removes their attendance and advance records.`)) return;
+    if (
+      !confirm(
+        `Delete ${worker.name}? This also removes their attendance and advance records.`
+      )
+    )
+      return;
     await deleteWorker(worker.id);
   };
 
@@ -57,13 +62,17 @@ export default function WorkerManagement({ siteId, onOpenProfile }: Props) {
         >
           <option value="all">All Roles</option>
           {filterRoles.map((r) => (
-            <option key={r} value={r}>{r}</option>
+            <option key={r} value={r}>
+              {r}
+            </option>
           ))}
         </select>
         <button
-          onClick={() => { setEditing(null); setShowForm(true); }}
-          disabled={!siteId}
-          className="flex items-center justify-center gap-2 px-5 py-3 bg-slate-900 dark:bg-amber-400 text-white dark:text-slate-900 font-semibold rounded-xl hover:bg-slate-800 dark:hover:bg-amber-300 transition-colors whitespace-nowrap disabled:opacity-50"
+          onClick={() => {
+            setEditing(null);
+            setShowForm(true);
+          }}
+          className="flex items-center justify-center gap-2 px-5 py-3 bg-slate-900 dark:bg-amber-400 text-white dark:text-slate-900 font-semibold rounded-xl hover:bg-slate-800 dark:hover:bg-amber-300 transition-colors whitespace-nowrap"
         >
           <Plus className="w-5 h-5" /> Add Worker
         </button>
@@ -73,16 +82,13 @@ export default function WorkerManagement({ siteId, onOpenProfile }: Props) {
         <div className="flex items-center justify-center py-16 text-slate-400">
           <Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading workers...
         </div>
-      ) : !siteId ? (
-        <div className="text-center py-16">
-          <Briefcase className="w-12 h-12 text-slate-300 dark:text-zinc-600 mx-auto mb-3" />
-          <p className="text-slate-500 dark:text-slate-400 font-medium">Select a site first to manage workers.</p>
-        </div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-16">
           <Users className="w-12 h-12 text-slate-300 dark:text-zinc-600 mx-auto mb-3" />
           <p className="text-slate-500 dark:text-slate-400 font-medium">
-            {workers.length === 0 ? 'No workers yet. Add your first worker to get started.' : 'No workers match your search.'}
+            {workers.length === 0
+              ? 'No workers yet. Add your first worker to get started.'
+              : 'No workers match your search.'}
           </p>
         </div>
       ) : (
@@ -99,7 +105,9 @@ export default function WorkerManagement({ siteId, onOpenProfile }: Props) {
                     {worker.name.charAt(0).toUpperCase()}
                   </div>
                   <div>
-                    <h3 className="font-semibold text-slate-900 dark:text-white hover:text-amber-600 dark:hover:text-amber-400 transition-colors">{worker.name}</h3>
+                    <h3 className="font-semibold text-slate-900 dark:text-white hover:text-amber-600 dark:hover:text-amber-400 transition-colors">
+                      {worker.name}
+                    </h3>
                     <span className="inline-block mt-0.5 text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300">
                       {worker.role}
                     </span>
@@ -112,13 +120,19 @@ export default function WorkerManagement({ siteId, onOpenProfile }: Props) {
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
-                    onClick={(e) => { e.stopPropagation(); handleEdit(worker); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleEdit(worker);
+                    }}
                     className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
                   >
                     <Pencil className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={(e) => { e.stopPropagation(); handleDelete(worker); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(worker);
+                    }}
                     className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -176,13 +190,23 @@ export default function WorkerManagement({ siteId, onOpenProfile }: Props) {
 }
 
 function WorkerForm({
-  worker, roles, onOpenRoles, onClose, onSave,
+  worker,
+  roles,
+  onOpenRoles,
+  onClose,
+  onSave,
 }: {
   worker: Worker | null;
   roles: string[];
   onOpenRoles: () => void;
   onClose: () => void;
-  onSave: (data: { name: string; phone: string | null; role: string; dailyWage: number; overtimeHourlyRate: number }) => Promise<void>;
+  onSave: (data: {
+    name: string;
+    phone: string | null;
+    role: string;
+    dailyWage: number;
+    overtimeHourlyRate: number;
+  }) => Promise<void>;
 }) {
   const [name, setName] = useState(worker?.name ?? '');
   const [phone, setPhone] = useState(worker?.phone ?? '');
@@ -214,14 +238,21 @@ function WorkerForm({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
       <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-zinc-800 sticky top-0 bg-white dark:bg-zinc-900 rounded-t-2xl z-10">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-white">{worker ? 'Edit Worker' : 'Add Worker'}</h2>
-          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors">
+          <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+            {worker ? 'Edit Worker' : 'Add Worker'}
+          </h2>
+          <button
+            onClick={onClose}
+            className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
         <form onSubmit={handleSave} className="p-5 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Name</label>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+              Name
+            </label>
             <input
               required
               value={name}
@@ -231,7 +262,9 @@ function WorkerForm({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Phone</label>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+              Phone
+            </label>
             <input
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
@@ -240,7 +273,9 @@ function WorkerForm({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Trade / Role</label>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+              Trade / Role
+            </label>
             <div className="flex gap-2">
               <select
                 value={role}
@@ -248,7 +283,9 @@ function WorkerForm({
                 className="flex-1 px-4 py-3 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all"
               >
                 {roles.map((r) => (
-                  <option key={r} value={r}>{r}</option>
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
                 ))}
               </select>
               <button
@@ -264,7 +301,9 @@ function WorkerForm({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Daily Wage (&#8377;)</label>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                Daily Wage (&#8377;)
+              </label>
               <input
                 required
                 type="number"
@@ -277,7 +316,9 @@ function WorkerForm({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">OT Rate / hr (&#8377;)</label>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                OT Rate / hr (&#8377;)
+              </label>
               <input
                 required
                 type="number"
@@ -290,7 +331,11 @@ function WorkerForm({
               />
             </div>
           </div>
-          {error && <p className="text-red-600 dark:text-red-400 text-sm bg-red-50 dark:bg-red-950/40 rounded-lg p-3">{error}</p>}
+          {error && (
+            <p className="text-red-600 dark:text-red-400 text-sm bg-red-50 dark:bg-red-950/40 rounded-lg p-3">
+              {error}
+            </p>
+          )}
           <button
             type="submit"
             disabled={saving}

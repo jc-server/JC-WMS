@@ -8,7 +8,6 @@ import type { Worker } from '@/hooks/useWorkers';
 
 type Props = {
   workers: Worker[];
-  siteId: string | null;
   onOpenProfile: (worker: Worker) => void;
 };
 
@@ -17,6 +16,7 @@ type WageSummary = {
   presentDays: number;
   halfDays: number;
   absentDays: number;
+  holidayDays: number;
   otHours: number;
   grossWages: number;
   standaloneAdvances: number;
@@ -41,18 +41,29 @@ function currentMonthStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-export default function WageSummaryView({ workers, siteId, onOpenProfile }: Props) {
+export default function WageSummaryView({ workers, onOpenProfile }: Props) {
   const [month, setMonth] = useState(currentMonthStr());
   const [showAdvanceModal, setShowAdvanceModal] = useState(false);
   const [ledgerWorker, setLedgerWorker] = useState<Worker | null>(null);
 
-  const { records: monthAtt, loading: attLoading } = useMonthlyAttendance(siteId, month);
-  const { getAdvancesForMonth, getAdvancesForWorker, addAdvance, loading: advLoading } = useAdvances(siteId);
+  const { records: monthAtt, loading: attLoading } = useMonthlyAttendance(month);
+  const { getAdvancesForMonth, getAdvancesForWorker, addAdvance, loading: advLoading } =
+    useAdvances();
 
   const monthAdvances = getAdvancesForMonth(month);
 
   const summaries: WageSummary[] = workers.map((worker) => {
-    const att = monthAtt[worker.id] ?? { present: 0, half: 0, absent: 0, otHours: 0, amountPaid: 0, advanceAmount: 0 };
+    const att =
+      monthAtt[worker.id] ??
+      {
+        present: 0,
+        half: 0,
+        absent: 0,
+        holiday: 0,
+        otHours: 0,
+        amountPaid: 0,
+        advanceAmount: 0,
+      };
     const grossWages =
       att.present * worker.dailyWage +
       att.half * 0.5 * worker.dailyWage +
@@ -73,6 +84,7 @@ export default function WageSummaryView({ workers, siteId, onOpenProfile }: Prop
       presentDays: att.present,
       halfDays: att.half,
       absentDays: att.absent,
+      holidayDays: att.holiday,
       otHours: att.otHours,
       grossWages,
       standaloneAdvances,
@@ -96,9 +108,22 @@ export default function WageSummaryView({ workers, siteId, onOpenProfile }: Prop
       acc.otHours += s.otHours;
       acc.presentDays += s.presentDays;
       acc.halfDays += s.halfDays;
+      acc.holidayDays += s.holidayDays;
       return acc;
     },
-    { grossWages: 0, standaloneAdvances: 0, attendanceAdvances: 0, totalAdvances: 0, dailyPaid: 0, totalPaid: 0, netPayable: 0, otHours: 0, presentDays: 0, halfDays: 0 }
+    {
+      grossWages: 0,
+      standaloneAdvances: 0,
+      attendanceAdvances: 0,
+      totalAdvances: 0,
+      dailyPaid: 0,
+      totalPaid: 0,
+      netPayable: 0,
+      otHours: 0,
+      presentDays: 0,
+      halfDays: 0,
+      holidayDays: 0,
+    }
   );
 
   const loading = attLoading || advLoading;
@@ -107,21 +132,25 @@ export default function WageSummaryView({ workers, siteId, onOpenProfile }: Prop
     const monthInfo = getMonthInfo(month);
     const headers = [
       'Worker Name', 'Phone', 'Role', 'Daily Wage', 'OT Rate/hr',
-      'Present Days', 'Half Days', 'Absent Days', 'OT Hours',
+      'Present Days', 'Half Days', 'Absent Days', 'Holiday Days', 'OT Hours',
       'Gross Wages', 'Daily Paid', 'Khata Advances', 'Attendance Advances', 'Total Advances', 'Total Paid', 'Net Payable',
     ];
 
     const rows = summaries.map((s) => [
       s.worker.name, s.worker.phone ?? '', s.worker.role,
       s.worker.dailyWage.toFixed(2), s.worker.overtimeHourlyRate.toFixed(2),
-      s.presentDays, s.halfDays, s.absentDays, s.otHours.toFixed(2),
-      s.grossWages.toFixed(2), s.dailyPaid.toFixed(2), s.standaloneAdvances.toFixed(2), s.attendanceAdvances.toFixed(2), s.totalAdvances.toFixed(2), s.totalPaid.toFixed(2), s.netPayable.toFixed(2),
+      s.presentDays, s.halfDays, s.absentDays, s.holidayDays, s.otHours.toFixed(2),
+      s.grossWages.toFixed(2), s.dailyPaid.toFixed(2), s.standaloneAdvances.toFixed(2),
+      s.attendanceAdvances.toFixed(2), s.totalAdvances.toFixed(2), s.totalPaid.toFixed(2),
+      s.netPayable.toFixed(2),
     ]);
 
     const totalsRow = [
       'TOTAL', '', '', '', '',
-      totals.presentDays, totals.halfDays, '', totals.otHours.toFixed(2),
-      totals.grossWages.toFixed(2), totals.dailyPaid.toFixed(2), totals.standaloneAdvances.toFixed(2), totals.attendanceAdvances.toFixed(2), totals.totalAdvances.toFixed(2), totals.totalPaid.toFixed(2), totals.netPayable.toFixed(2),
+      totals.presentDays, totals.halfDays, '', totals.holidayDays, totals.otHours.toFixed(2),
+      totals.grossWages.toFixed(2), totals.dailyPaid.toFixed(2), totals.standaloneAdvances.toFixed(2),
+      totals.attendanceAdvances.toFixed(2), totals.totalAdvances.toFixed(2),
+      totals.totalPaid.toFixed(2), totals.netPayable.toFixed(2),
     ];
 
     const csv = [headers, ...rows, totalsRow]
@@ -151,8 +180,7 @@ export default function WageSummaryView({ workers, siteId, onOpenProfile }: Prop
         <div className="flex-1" />
         <button
           onClick={() => setShowAdvanceModal(true)}
-          disabled={!siteId}
-          className="flex items-center justify-center gap-2 px-5 py-3 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-slate-200 font-semibold rounded-xl hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors whitespace-nowrap disabled:opacity-50"
+          className="flex items-center justify-center gap-2 px-5 py-3 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-slate-200 font-semibold rounded-xl hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors whitespace-nowrap"
         >
           <TrendingDown className="w-5 h-5 text-red-500" /> Log Advance
         </button>
@@ -166,19 +194,41 @@ export default function WageSummaryView({ workers, siteId, onOpenProfile }: Prop
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <StatCard label="Gross Wages" value={`\u20B9${totals.grossWages.toFixed(0)}`} color="text-blue-600 dark:text-blue-400" bg="bg-blue-50 dark:bg-blue-950/30" />
-        <StatCard label="Total Paid" value={`\u20B9${totals.totalPaid.toFixed(0)}`} color="text-slate-900 dark:text-white" bg="bg-slate-100 dark:bg-zinc-800" />
-        <StatCard label="Net Payable" value={`\u20B9${totals.netPayable.toFixed(0)}`} color="text-white" bg={totals.netPayable > 0 ? 'bg-red-500 dark:bg-red-600' : totals.netPayable < 0 ? 'bg-green-500 dark:bg-green-600' : 'bg-slate-200 dark:bg-zinc-700'} />
-        <StatCard label="OT Hours" value={totals.otHours.toFixed(1)} color="text-blue-600 dark:text-blue-400" bg="bg-blue-50 dark:bg-blue-950/30" />
+        <StatCard
+          label="Gross Wages"
+          value={`\u20B9${totals.grossWages.toFixed(0)}`}
+          color="text-blue-600 dark:text-blue-400"
+          bg="bg-blue-50 dark:bg-blue-950/30"
+        />
+        <StatCard
+          label="Total Paid"
+          value={`\u20B9${totals.totalPaid.toFixed(0)}`}
+          color="text-slate-900 dark:text-white"
+          bg="bg-slate-100 dark:bg-zinc-800"
+        />
+        <StatCard
+          label="Net Payable"
+          value={`\u20B9${totals.netPayable.toFixed(0)}`}
+          color="text-white"
+          bg={
+            totals.netPayable > 0
+              ? 'bg-red-500 dark:bg-red-600'
+              : totals.netPayable < 0
+              ? 'bg-green-500 dark:bg-green-600'
+              : 'bg-slate-200 dark:bg-zinc-700'
+          }
+        />
+        <StatCard
+          label="OT Hours"
+          value={totals.otHours.toFixed(1)}
+          color="text-blue-600 dark:text-blue-400"
+          bg="bg-blue-50 dark:bg-blue-950/30"
+        />
       </div>
 
       {loading ? (
         <div className="flex items-center justify-center py-16 text-slate-400">
           <Loader2 className="w-6 h-6 animate-spin mr-2" /> Calculating wages...
-        </div>
-      ) : !siteId ? (
-        <div className="text-center py-16 text-slate-500 dark:text-slate-400 font-medium">
-          Select a site to view wages.
         </div>
       ) : summaries.length === 0 ? (
         <div className="text-center py-16 text-slate-500 dark:text-slate-400 font-medium">
@@ -203,7 +253,10 @@ export default function WageSummaryView({ workers, siteId, onOpenProfile }: Prop
               </thead>
               <tbody>
                 {summaries.map((s) => (
-                  <tr key={s.worker.id} className="border-b border-slate-100 dark:border-zinc-800 hover:bg-slate-50/50 dark:hover:bg-zinc-800/50 transition-colors">
+                  <tr
+                    key={s.worker.id}
+                    className="border-b border-slate-100 dark:border-zinc-800 hover:bg-slate-50/50 dark:hover:bg-zinc-800/50 transition-colors"
+                  >
                     <td className="px-4 py-3">
                       <button
                         onClick={() => onOpenProfile(s.worker)}
@@ -213,18 +266,44 @@ export default function WageSummaryView({ workers, siteId, onOpenProfile }: Prop
                           {s.worker.name.charAt(0).toUpperCase()}
                         </div>
                         <div>
-                          <p className="font-semibold text-slate-900 dark:text-white text-sm hover:text-amber-600 dark:hover:text-amber-400 transition-colors">{s.worker.name}</p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">{s.worker.role} &#183; &#8377;{s.worker.dailyWage.toFixed(0)}/day</p>
+                          <p className="font-semibold text-slate-900 dark:text-white text-sm hover:text-amber-600 dark:hover:text-amber-400 transition-colors">
+                            {s.worker.name}
+                          </p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            {s.worker.role} &#183; &#8377;{s.worker.dailyWage.toFixed(0)}/day
+                          </p>
                         </div>
                       </button>
                     </td>
-                    <td className="text-center px-2 py-3 text-sm font-medium text-green-700 dark:text-green-400">{s.presentDays}</td>
-                    <td className="text-center px-2 py-3 text-sm font-medium text-amber-700 dark:text-amber-400">{s.halfDays}</td>
-                    <td className="text-center px-2 py-3 text-sm font-medium text-blue-700 dark:text-blue-400">{s.otHours.toFixed(1)}</td>
-                    <td className="text-right px-2 py-3 text-sm font-semibold text-slate-900 dark:text-white">&#8377;{s.grossWages.toFixed(0)}</td>
-                    <td className="text-right px-2 py-3 text-sm font-medium text-blue-700 dark:text-blue-400">&#8377;{s.dailyPaid.toFixed(0)}</td>
-                    <td className="text-right px-2 py-3 text-sm font-medium text-slate-600 dark:text-slate-300">&#8377;{s.totalAdvances.toFixed(0)}</td>
-                    <td className={`text-right px-3 py-3 text-sm font-bold ${s.netPayable > 0 ? 'text-red-600 dark:text-red-400' : s.netPayable < 0 ? 'text-green-600 dark:text-green-400' : 'text-slate-500 dark:text-slate-400'}`}>&#8377;{s.netPayable.toFixed(0)}</td>
+                    <td className="text-center px-2 py-3 text-sm font-medium text-green-700 dark:text-green-400">
+                      {s.presentDays}
+                    </td>
+                    <td className="text-center px-2 py-3 text-sm font-medium text-amber-700 dark:text-amber-400">
+                      {s.halfDays}
+                    </td>
+                    <td className="text-center px-2 py-3 text-sm font-medium text-blue-700 dark:text-blue-400">
+                      {s.otHours.toFixed(1)}
+                    </td>
+                    <td className="text-right px-2 py-3 text-sm font-semibold text-slate-900 dark:text-white">
+                      &#8377;{s.grossWages.toFixed(0)}
+                    </td>
+                    <td className="text-right px-2 py-3 text-sm font-medium text-blue-700 dark:text-blue-400">
+                      &#8377;{s.dailyPaid.toFixed(0)}
+                    </td>
+                    <td className="text-right px-2 py-3 text-sm font-medium text-slate-600 dark:text-slate-300">
+                      &#8377;{s.totalAdvances.toFixed(0)}
+                    </td>
+                    <td
+                      className={`text-right px-3 py-3 text-sm font-bold ${
+                        s.netPayable > 0
+                          ? 'text-red-600 dark:text-red-400'
+                          : s.netPayable < 0
+                          ? 'text-green-600 dark:text-green-400'
+                          : 'text-slate-500 dark:text-slate-400'
+                      }`}
+                    >
+                      &#8377;{s.netPayable.toFixed(0)}
+                    </td>
                     <td className="px-2 py-3">
                       <button
                         onClick={() => setLedgerWorker(s.worker)}
@@ -237,12 +316,32 @@ export default function WageSummaryView({ workers, siteId, onOpenProfile }: Prop
                   </tr>
                 ))}
                 <tr className="bg-slate-50 dark:bg-zinc-800 font-bold">
-                  <td className="px-4 py-3 text-slate-900 dark:text-white text-sm" colSpan={3}>TOTAL ({monthInfo.label})</td>
-                  <td className="text-center px-2 py-3 text-sm text-blue-700 dark:text-blue-400">{totals.otHours.toFixed(1)}</td>
-                  <td className="text-right px-2 py-3 text-sm text-slate-900 dark:text-white">&#8377;{totals.grossWages.toFixed(0)}</td>
-                  <td className="text-right px-2 py-3 text-sm text-blue-700 dark:text-blue-400">&#8377;{totals.dailyPaid.toFixed(0)}</td>
-                  <td className="text-right px-2 py-3 text-sm text-slate-600 dark:text-slate-300">&#8377;{totals.totalAdvances.toFixed(0)}</td>
-                  <td className={`text-right px-3 py-3 text-sm ${totals.netPayable > 0 ? 'text-red-600 dark:text-red-400' : totals.netPayable < 0 ? 'text-green-600 dark:text-green-400' : 'text-slate-500 dark:text-slate-400'}`}>&#8377;{totals.netPayable.toFixed(0)}</td>
+                  <td className="px-4 py-3 text-slate-900 dark:text-white text-sm" colSpan={3}>
+                    TOTAL ({monthInfo.label})
+                  </td>
+                  <td className="text-center px-2 py-3 text-sm text-blue-700 dark:text-blue-400">
+                    {totals.otHours.toFixed(1)}
+                  </td>
+                  <td className="text-right px-2 py-3 text-sm text-slate-900 dark:text-white">
+                    &#8377;{totals.grossWages.toFixed(0)}
+                  </td>
+                  <td className="text-right px-2 py-3 text-sm text-blue-700 dark:text-blue-400">
+                    &#8377;{totals.dailyPaid.toFixed(0)}
+                  </td>
+                  <td className="text-right px-2 py-3 text-sm text-slate-600 dark:text-slate-300">
+                    &#8377;{totals.totalAdvances.toFixed(0)}
+                  </td>
+                  <td
+                    className={`text-right px-3 py-3 text-sm ${
+                      totals.netPayable > 0
+                        ? 'text-red-600 dark:text-red-400'
+                        : totals.netPayable < 0
+                        ? 'text-green-600 dark:text-green-400'
+                        : 'text-slate-500 dark:text-slate-400'
+                    }`}
+                  >
+                    &#8377;{totals.netPayable.toFixed(0)}
+                  </td>
                   <td></td>
                 </tr>
               </tbody>
@@ -264,7 +363,6 @@ export default function WageSummaryView({ workers, siteId, onOpenProfile }: Prop
         <PassbookModal
           worker={ledgerWorker}
           advances={getAdvancesForWorker(ledgerWorker.id)}
-          monthAdvances={monthAdvances.filter((a) => a.workerId === ledgerWorker.id)}
           onClose={() => setLedgerWorker(null)}
         />
       )}
@@ -272,7 +370,17 @@ export default function WageSummaryView({ workers, siteId, onOpenProfile }: Prop
   );
 }
 
-function StatCard({ label, value, color, bg }: { label: string; value: string; color: string; bg: string }) {
+function StatCard({
+  label,
+  value,
+  color,
+  bg,
+}: {
+  label: string;
+  value: string;
+  color: string;
+  bg: string;
+}) {
   return (
     <div className={`${bg} rounded-xl p-3 text-center`}>
       <p className={`text-xl sm:text-2xl font-bold ${color}`}>{value}</p>
@@ -282,12 +390,20 @@ function StatCard({ label, value, color, bg }: { label: string; value: string; c
 }
 
 function AdvanceModal({
-  workers, onClose, onSaved, addAdvance,
+  workers,
+  onClose,
+  onSaved,
+  addAdvance,
 }: {
   workers: Worker[];
   onClose: () => void;
   onSaved: () => void;
-  addAdvance: (data: { workerId: string; amount: number; date: string; reason: string | null }) => Promise<void>;
+  addAdvance: (data: {
+    workerId: string;
+    amount: number;
+    date: string;
+    reason: string | null;
+  }) => Promise<void>;
 }) {
   const [workerId, setWorkerId] = useState(workers[0]?.id ?? '');
   const [amount, setAmount] = useState('');
@@ -302,7 +418,10 @@ function AdvanceModal({
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!workerId) { setError('Please select a worker.'); return; }
+    if (!workerId) {
+      setError('Please select a worker.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -329,13 +448,18 @@ function AdvanceModal({
             </div>
             <h2 className="text-lg font-bold text-slate-900 dark:text-white">Log Cash Advance</h2>
           </div>
-          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors">
+          <button
+            onClick={onClose}
+            className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
         <form onSubmit={handleSave} className="p-5 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Worker</label>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+              Worker
+            </label>
             <select
               required
               value={workerId}
@@ -344,12 +468,16 @@ function AdvanceModal({
             >
               {workers.length === 0 && <option value="">No workers available</option>}
               {workers.map((w) => (
-                <option key={w.id} value={w.id}>{w.name}</option>
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
               ))}
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Amount (&#8377;)</label>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+              Amount (&#8377;)
+            </label>
             <input
               required
               type="number"
@@ -362,7 +490,9 @@ function AdvanceModal({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Date</label>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+              Date
+            </label>
             <input
               type="date"
               required
@@ -372,7 +502,9 @@ function AdvanceModal({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Note (optional)</label>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+              Note (optional)
+            </label>
             <input
               value={reason}
               onChange={(e) => setReason(e.target.value)}
@@ -380,7 +512,11 @@ function AdvanceModal({
               placeholder="e.g. emergency loan, food advance"
             />
           </div>
-          {error && <p className="text-red-600 dark:text-red-400 text-sm bg-red-50 dark:bg-red-950/40 rounded-lg p-3">{error}</p>}
+          {error && (
+            <p className="text-red-600 dark:text-red-400 text-sm bg-red-50 dark:bg-red-950/40 rounded-lg p-3">
+              {error}
+            </p>
+          )}
           <button
             type="submit"
             disabled={saving || workers.length === 0}
@@ -396,11 +532,12 @@ function AdvanceModal({
 }
 
 function PassbookModal({
-  worker, advances, onClose,
+  worker,
+  advances,
+  onClose,
 }: {
   worker: Worker;
   advances: { id: string; amount: number; date: string; reason: string | null }[];
-  monthAdvances: { id: string; amount: number; date: string; reason: string | null }[];
   onClose: () => void;
 }) {
   const sorted = [...advances].sort((a, b) => b.date.localeCompare(a.date));
@@ -416,10 +553,15 @@ function PassbookModal({
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-900 dark:text-white">Passbook</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">{worker.name} &#183; {worker.role}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {worker.name} &#183; {worker.role}
+              </p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors">
+          <button
+            onClick={onClose}
+            className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -427,26 +569,47 @@ function PassbookModal({
         <div className="p-5">
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div className="bg-green-50 dark:bg-green-950/30 rounded-xl p-3 text-center">
-              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mb-1">Daily Wage</p>
-              <p className="text-lg font-bold text-green-600 dark:text-green-400">&#8377;{worker.dailyWage.toFixed(0)}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mb-1">
+                Daily Wage
+              </p>
+              <p className="text-lg font-bold text-green-600 dark:text-green-400">
+                &#8377;{worker.dailyWage.toFixed(0)}
+              </p>
             </div>
             <div className="bg-red-50 dark:bg-red-950/30 rounded-xl p-3 text-center">
-              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mb-1">Total Advances</p>
-              <p className="text-lg font-bold text-red-600 dark:text-red-400">&#8377;{totalAdvances.toFixed(0)}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mb-1">
+                Total Advances
+              </p>
+              <p className="text-lg font-bold text-red-600 dark:text-red-400">
+                &#8377;{totalAdvances.toFixed(0)}
+              </p>
             </div>
           </div>
 
-          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Advance History</h3>
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
+            Advance History
+          </h3>
           {sorted.length === 0 ? (
-            <p className="text-center py-8 text-slate-400 dark:text-slate-500 text-sm">No advances recorded yet.</p>
+            <p className="text-center py-8 text-slate-400 dark:text-slate-500 text-sm">
+              No advances recorded yet.
+            </p>
           ) : (
             <div className="space-y-2">
               {sorted.map((a) => (
-                <div key={a.id} className="flex items-center justify-between bg-slate-50 dark:bg-zinc-800 rounded-xl p-3">
+                <div
+                  key={a.id}
+                  className="flex items-center justify-between bg-slate-50 dark:bg-zinc-800 rounded-xl p-3"
+                >
                   <div>
-                    <p className="font-semibold text-slate-900 dark:text-white text-sm">&#8377;{a.amount.toFixed(0)}</p>
+                    <p className="font-semibold text-slate-900 dark:text-white text-sm">
+                      &#8377;{a.amount.toFixed(0)}
+                    </p>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      {new Date(a.date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      {new Date(a.date + 'T00:00:00').toLocaleDateString('en-IN', {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                      })}
                       {a.reason && ` \u00b7 ${a.reason}`}
                     </p>
                   </div>

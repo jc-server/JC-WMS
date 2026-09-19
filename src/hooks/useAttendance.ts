@@ -12,7 +12,7 @@ import {
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 
-export type AttendanceStatus = 'present' | 'half' | 'absent';
+export type AttendanceStatus = 'present' | 'half' | 'absent' | 'holiday';
 
 export type AttendanceRecord = {
   id: string;
@@ -22,19 +22,22 @@ export type AttendanceRecord = {
   overtimeHours: number;
   amountPaid: number;
   remark: string;
+  isHoliday?: boolean;
+  holidayReason?: string;
 };
 
-function sitePath(user: string, siteId: string) {
-  return collection(db, 'users', user, 'sites', siteId, 'attendance');
+// Attendance is GLOBAL — site-agnostic. Path: users/{uid}/attendance/{date}_{workerId}
+function attendancePath(user: string) {
+  return collection(db, 'users', user, 'attendance');
 }
 
-export function useAttendance(siteId: string | null, date: string) {
+export function useAttendance(date: string) {
   const { user } = useAuth();
   const [records, setRecords] = useState<Record<string, AttendanceRecord>>({});
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    if (!user || !siteId) {
+    if (!user) {
       setRecords({});
       setLoading(false);
       return;
@@ -42,22 +45,23 @@ export function useAttendance(siteId: string | null, date: string) {
 
     setLoading(true);
     try {
-      const snap = await getDocs(sitePath(user.uid, siteId));
+      const snap = await getDocs(attendancePath(user.uid));
       const map: Record<string, AttendanceRecord> = {};
       snap.forEach((d) => {
         const data = d.data() as Record<string, unknown>;
-        const rec: AttendanceRecord = {
+        if (data.date !== date) return;
+        const workerId = data.workerId as string;
+        map[workerId] = {
           id: d.id,
-          workerId: data.workerId as string,
+          workerId,
           date: data.date as string,
           status: data.status as AttendanceStatus,
           overtimeHours: Number(data.overtimeHours ?? 0),
           amountPaid: Number(data.amountPaid ?? data.advanceAmount ?? 0),
           remark: (data.remark as string) ?? '',
+          isHoliday: data.isHoliday === true,
+          holidayReason: (data.holidayReason as string) ?? undefined,
         };
-        if (rec.date === date) {
-          map[rec.workerId] = rec;
-        }
       });
       setRecords(map);
     } catch (err) {
@@ -65,51 +69,87 @@ export function useAttendance(siteId: string | null, date: string) {
     } finally {
       setLoading(false);
     }
-  }, [user, siteId, date]);
+  }, [user, date]);
 
   useEffect(() => {
     load();
   }, [load]);
 
   const saveRecord = useCallback(
-    async (workerId: string, status: AttendanceStatus, overtimeHours: number, amountPaid: number, remark: string) => {
-      if (!user || !siteId) return;
+    async (
+      workerId: string,
+      status: AttendanceStatus,
+      overtimeHours: number,
+      amountPaid: number,
+      remark: string
+    ) => {
+      if (!user) return;
       const docId = `${date}_${workerId}`;
-      const ref = doc(db, 'users', user.uid, 'sites', siteId, 'attendance', docId);
-      await setDoc(ref, {
-        workerId,
-        date,
-        status,
-        overtimeHours,
-        amountPaid,
-        remark,
-        updatedAt: Date.now(),
-      }, { merge: true });
+      const ref = doc(db, 'users', user.uid, 'attendance', docId);
+      await setDoc(
+        ref,
+        {
+          workerId,
+          date,
+          status,
+          overtimeHours,
+          amountPaid,
+          remark,
+          isHoliday: false,
+          holidayReason: null,
+          updatedAt: Date.now(),
+        },
+        { merge: true }
+      );
 
       setRecords((prev) => ({
         ...prev,
-        [workerId]: { id: docId, workerId, date, status, overtimeHours, amountPaid, remark },
+        [workerId]: {
+          id: docId,
+          workerId,
+          date,
+          status,
+          overtimeHours,
+          amountPaid,
+          remark,
+          isHoliday: false,
+          holidayReason: undefined,
+        },
       }));
     },
-    [user, siteId, date]
+    [user, date]
   );
 
   const saveAll = useCallback(
-    async (entries: { workerId: string; status: AttendanceStatus; overtimeHours: number; amountPaid: number; remark: string }[]) => {
-      if (!user || !siteId || entries.length === 0) return;
+    async (
+      entries: {
+        workerId: string;
+        status: AttendanceStatus;
+        overtimeHours: number;
+        amountPaid: number;
+        remark: string;
+      }[]
+    ) => {
+      if (!user || entries.length === 0) return;
       const batch = writeBatch(db);
       for (const entry of entries) {
         const docId = `${date}_${entry.workerId}`;
-        const ref = doc(db, 'users', user.uid, 'sites', siteId, 'attendance', docId);
-        batch.set(ref, {
-          workerId: entry.workerId,
-          date,
-          status: entry.status,
-          overtimeHours: entry.overtimeHours,
-          amountPaid: entry.amountPaid,
-          remark: entry.remark,
-          updatedAt: Date.now(),
-        }, { merge: true });
+        const ref = doc(db, 'users', user.uid, 'attendance', docId);
+        batch.set(
+          ref,
+          {
+            workerId: entry.workerId,
+            date,
+            status: entry.status,
+            overtimeHours: entry.overtimeHours,
+            amountPaid: entry.amountPaid,
+            remark: entry.remark,
+            isHoliday: false,
+            holidayReason: null,
+            updatedAt: Date.now(),
+          },
+          { merge: true }
+        );
       }
       await batch.commit();
 
@@ -125,46 +165,118 @@ export function useAttendance(siteId: string | null, date: string) {
             overtimeHours: entry.overtimeHours,
             amountPaid: entry.amountPaid,
             remark: entry.remark,
+            isHoliday: false,
+            holidayReason: undefined,
           };
         }
         return next;
       });
     },
-    [user, siteId, date]
+    [user, date]
   );
 
   const deleteRecord = useCallback(
     async (workerId: string) => {
-      if (!user || !siteId) return;
+      if (!user) return;
       const docId = `${date}_${workerId}`;
-      await deleteDoc(doc(db, 'users', user.uid, 'sites', siteId, 'attendance', docId));
+      await deleteDoc(doc(db, 'users', user.uid, 'attendance', docId));
       setRecords((prev) => {
         const next = { ...prev };
         delete next[workerId];
         return next;
       });
     },
-    [user, siteId, date]
+    [user, date]
   );
 
-  return { records, loading, saveRecord, saveAll, deleteRecord, reload: load };
+  const markHoliday = useCallback(
+    async (reason: string, workerIds: string[]): Promise<number> => {
+      if (!user) throw new Error('Not signed in.');
+      if (workerIds.length === 0) return 0;
+
+      try {
+        const existing = await getDocs(
+          query(attendancePath(user.uid), where('date', '==', date))
+        );
+        const preservedAmount = new Map<string, number>();
+        existing.forEach((d) => {
+          const data = d.data() as Record<string, unknown>;
+          preservedAmount.set(
+            data.workerId as string,
+            Number(data.amountPaid ?? data.advanceAmount ?? 0)
+          );
+        });
+
+        const batch = writeBatch(db);
+        for (const workerId of workerIds) {
+          const docId = `${date}_${workerId}`;
+          const ref = doc(db, 'users', user.uid, 'attendance', docId);
+          batch.set(
+            ref,
+            {
+              workerId,
+              date,
+              status: 'holiday',
+              isHoliday: true,
+              holidayReason: reason,
+              overtimeHours: 0,
+              wageEarned: 0,
+              amountPaid: preservedAmount.get(workerId) ?? 0,
+              remark: `Holiday: ${reason}`,
+              updatedAt: Date.now(),
+            },
+            { merge: true }
+          );
+        }
+        await batch.commit();
+
+        setRecords((prev) => {
+          const next = { ...prev };
+          for (const workerId of workerIds) {
+            next[workerId] = {
+              id: `${date}_${workerId}`,
+              workerId,
+              date,
+              status: 'holiday',
+              overtimeHours: 0,
+              amountPaid: preservedAmount.get(workerId) ?? 0,
+              remark: `Holiday: ${reason}`,
+              isHoliday: true,
+              holidayReason: reason,
+            };
+          }
+          return next;
+        });
+
+        return workerIds.length;
+      } catch (err) {
+        console.error('markHoliday error:', err);
+        throw new Error('Could not mark holiday. Check your connection and try again.');
+      }
+    },
+    [user, date]
+  );
+
+  return { records, loading, saveRecord, saveAll, deleteRecord, markHoliday, reload: load };
 }
 
 export type AttendanceMonthRecord = {
   present: number;
   half: number;
   absent: number;
+  holiday: number;
   otHours: number;
   amountPaid: number;
+  advanceAmount: number;
 };
 
-export function useMonthlyAttendance(siteId: string | null, monthStr: string) {
+export function useMonthlyAttendance(monthStr: string) {
   const { user } = useAuth();
   const [records, setRecords] = useState<Record<string, AttendanceMonthRecord>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user || !siteId) {
+    if (!user) {
       setRecords({});
       setLoading(false);
       return;
@@ -180,7 +292,7 @@ export function useMonthlyAttendance(siteId: string | null, monthStr: string) {
     (async () => {
       try {
         const q = query(
-          sitePath(user.uid, siteId),
+          attendancePath(user.uid),
           where('date', '>=', startStr),
           where('date', '<=', endStr)
         );
@@ -189,17 +301,28 @@ export function useMonthlyAttendance(siteId: string | null, monthStr: string) {
         snap.forEach((d) => {
           const data = d.data() as Record<string, unknown>;
           const workerId = data.workerId as string;
-          const status = data.status as 'present' | 'half' | 'absent';
+          const status = data.status as AttendanceStatus;
           const ot = Number(data.overtimeHours ?? 0);
-          const paid = Number(data.amountPaid ?? data.advanceAmount ?? 0);
+          const amountPaid = Number(data.amountPaid ?? 0);
+          const advanceAmount = Number(data.advanceAmount ?? 0);
           if (!map[workerId]) {
-            map[workerId] = { present: 0, half: 0, absent: 0, otHours: 0, amountPaid: 0 };
+            map[workerId] = {
+              present: 0,
+              half: 0,
+              absent: 0,
+              holiday: 0,
+              otHours: 0,
+              amountPaid: 0,
+              advanceAmount: 0,
+            };
           }
           if (status === 'present') map[workerId].present++;
           else if (status === 'half') map[workerId].half++;
+          else if (status === 'holiday') map[workerId].holiday++;
           else map[workerId].absent++;
           map[workerId].otHours += ot;
-          map[workerId].amountPaid += paid;
+          map[workerId].amountPaid += amountPaid;
+          map[workerId].advanceAmount += advanceAmount;
         });
         setRecords(map);
       } catch (err) {
@@ -208,7 +331,7 @@ export function useMonthlyAttendance(siteId: string | null, monthStr: string) {
         setLoading(false);
       }
     })();
-  }, [user, siteId, monthStr]);
+  }, [user, monthStr]);
 
   return { records, loading };
 }

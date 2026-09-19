@@ -9,7 +9,7 @@ export function roundCurrency(num: number): number {
 }
 
 export function calculateDailyEarned(
-  status: 'present' | 'half' | 'absent',
+  status: 'present' | 'half' | 'absent' | 'holiday',
   dailyWage: number,
   overtimeHours: number,
   overtimeHourlyRate: number
@@ -24,6 +24,7 @@ export function calculateDailyEarned(
   } else if (status === 'half') {
     base = wage * 0.5;
   }
+  // 'absent' and 'holiday' => no base wage
 
   const overtimePay = otHours * otRate;
   return roundCurrency(base + overtimePay);

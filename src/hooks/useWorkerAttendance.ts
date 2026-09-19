@@ -18,15 +18,18 @@ export type DayRecord = {
   amountPaid: number;
   advanceAmount: number;
   remark: string;
+  isHoliday?: boolean;
+  holidayReason?: string;
 };
 
-export function useWorkerAttendance(siteId: string | null, workerId: string | null, monthStr: string) {
+// Attendance is GLOBAL — workerId alone identifies the worker.
+export function useWorkerAttendance(workerId: string | null, monthStr: string) {
   const { user } = useAuth();
   const [records, setRecords] = useState<Record<string, DayRecord>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user || !siteId || !workerId) {
+    if (!user || !workerId) {
       setRecords({});
       setLoading(false);
       return;
@@ -38,8 +41,9 @@ export function useWorkerAttendance(siteId: string | null, workerId: string | nu
     const startStr = start.toISOString().slice(0, 10);
     const endStr = end.toISOString().slice(0, 10);
 
+    // Range-only query → no composite index required.
     const q = query(
-      collection(db, 'users', user.uid, 'sites', siteId, 'attendance'),
+      collection(db, 'users', user.uid, 'attendance'),
       where('date', '>=', startStr),
       where('date', '<=', endStr)
     );
@@ -58,6 +62,8 @@ export function useWorkerAttendance(siteId: string | null, workerId: string | nu
             amountPaid: Number(data.amountPaid ?? 0),
             advanceAmount: Number(data.advanceAmount ?? 0),
             remark: (data.remark as string) ?? '',
+            isHoliday: data.isHoliday === true,
+            holidayReason: (data.holidayReason as string) ?? undefined,
           };
         });
         setRecords(map);
@@ -70,34 +76,47 @@ export function useWorkerAttendance(siteId: string | null, workerId: string | nu
     );
 
     return () => unsub();
-  }, [user, siteId, workerId, monthStr]);
+  }, [user, workerId, monthStr]);
 
   const saveDay = useCallback(
-    async (date: string, status: AttendanceStatus, overtimeHours: number, amountPaid: number, advanceAmount: number, remark: string) => {
-      if (!user || !siteId || !workerId) return;
+    async (
+      date: string,
+      status: AttendanceStatus,
+      overtimeHours: number,
+      amountPaid: number,
+      advanceAmount: number,
+      remark: string
+    ) => {
+      if (!user || !workerId) return;
       const docId = `${date}_${workerId}`;
-      const ref = doc(db, 'users', user.uid, 'sites', siteId, 'attendance', docId);
-      await setDoc(ref, {
-        workerId,
-        date,
-        status,
-        overtimeHours,
-        amountPaid,
-        advanceAmount,
-        remark,
-        updatedAt: Date.now(),
-      }, { merge: true });
+      const ref = doc(db, 'users', user.uid, 'attendance', docId);
+      await setDoc(
+        ref,
+        {
+          workerId,
+          date,
+          status,
+          overtimeHours,
+          amountPaid,
+          advanceAmount,
+          remark,
+          isHoliday: false,
+          holidayReason: null,
+          updatedAt: Date.now(),
+        },
+        { merge: true }
+      );
     },
-    [user, siteId, workerId]
+    [user, workerId]
   );
 
   const deleteDay = useCallback(
     async (date: string) => {
-      if (!user || !siteId || !workerId) return;
+      if (!user || !workerId) return;
       const docId = `${date}_${workerId}`;
-      await deleteDoc(doc(db, 'users', user.uid, 'sites', siteId, 'attendance', docId));
+      await deleteDoc(doc(db, 'users', user.uid, 'attendance', docId));
     },
-    [user, siteId, workerId]
+    [user, workerId]
   );
 
   return { records, loading, saveDay, deleteDay };

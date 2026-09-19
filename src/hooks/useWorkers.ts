@@ -23,22 +23,25 @@ export type Worker = {
   createdAt: number;
 };
 
-export function useWorkers(siteId: string | null) {
+// Workers are GLOBAL — not site-scoped.
+// Path: users/{uid}/workers/{workerId}
+function workersPath(user: string) {
+  return collection(db, 'users', user, 'workers');
+}
+
+export function useWorkers() {
   const { user } = useAuth();
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user || !siteId) {
+    if (!user) {
       setWorkers([]);
       setLoading(false);
       return;
     }
 
-    const q = query(
-      collection(db, 'users', user.uid, 'sites', siteId, 'workers'),
-      orderBy('createdAt', 'asc')
-    );
+    const q = query(workersPath(user.uid), orderBy('createdAt', 'asc'));
 
     const unsub = onSnapshot(
       q,
@@ -66,34 +69,50 @@ export function useWorkers(siteId: string | null) {
     );
 
     return () => unsub();
-  }, [user, siteId]);
+  }, [user]);
 
   const addWorker = useCallback(
-    async (data: { name: string; phone: string | null; role: string; dailyWage: number; overtimeHourlyRate: number }) => {
-      if (!user || !siteId) return;
-      await addDoc(collection(db, 'users', user.uid, 'sites', siteId, 'workers'), {
+    async (data: {
+      name: string;
+      phone: string | null;
+      role: string;
+      dailyWage: number;
+      overtimeHourlyRate: number;
+    }) => {
+      if (!user) return;
+      await addDoc(workersPath(user.uid), {
         ...data,
         active: true,
         createdAt: Date.now(),
       });
     },
-    [user, siteId]
+    [user]
   );
 
   const updateWorker = useCallback(
-    async (id: string, data: { name?: string; phone?: string | null; role?: string; dailyWage?: number; overtimeHourlyRate?: number; active?: boolean }) => {
-      if (!user || !siteId) return;
-      await updateDoc(doc(db, 'users', user.uid, 'sites', siteId, 'workers', id), data);
+    async (
+      id: string,
+      data: {
+        name?: string;
+        phone?: string | null;
+        role?: string;
+        dailyWage?: number;
+        overtimeHourlyRate?: number;
+        active?: boolean;
+      }
+    ) => {
+      if (!user) return;
+      await updateDoc(doc(db, 'users', user.uid, 'workers', id), data);
     },
-    [user, siteId]
+    [user]
   );
 
   const deleteWorker = useCallback(
     async (id: string) => {
-      if (!user || !siteId) return;
-      await deleteDoc(doc(db, 'users', user.uid, 'sites', siteId, 'workers', id));
+      if (!user) return;
+      await deleteDoc(doc(db, 'users', user.uid, 'workers', id));
     },
-    [user, siteId]
+    [user]
   );
 
   return { workers, loading, addWorker, updateWorker, deleteWorker };

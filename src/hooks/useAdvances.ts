@@ -5,7 +5,6 @@ import {
   addDoc,
   onSnapshot,
   query,
-  where,
   orderBy,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -20,26 +19,25 @@ export type Advance = {
   createdAt: number;
 };
 
-function siteAdvancesPath(user: string, siteId: string) {
-  return collection(db, 'users', user, 'sites', siteId, 'advances');
+// Advances are GLOBAL — not site-scoped.
+// Path: users/{uid}/advances/{advanceId}
+function advancesPath(user: string) {
+  return collection(db, 'users', user, 'advances');
 }
 
-export function useAdvances(siteId: string | null) {
+export function useAdvances() {
   const { user } = useAuth();
   const [advances, setAdvances] = useState<Advance[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user || !siteId) {
+    if (!user) {
       setAdvances([]);
       setLoading(false);
       return;
     }
 
-    const q = query(
-      siteAdvancesPath(user.uid, siteId),
-      orderBy('createdAt', 'desc')
-    );
+    const q = query(advancesPath(user.uid), orderBy('createdAt', 'desc'));
 
     const unsub = onSnapshot(
       q,
@@ -65,17 +63,22 @@ export function useAdvances(siteId: string | null) {
     );
 
     return () => unsub();
-  }, [user, siteId]);
+  }, [user]);
 
   const addAdvance = useCallback(
-    async (data: { workerId: string; amount: number; date: string; reason: string | null }) => {
-      if (!user || !siteId) return;
-      await addDoc(siteAdvancesPath(user.uid, siteId), {
+    async (data: {
+      workerId: string;
+      amount: number;
+      date: string;
+      reason: string | null;
+    }) => {
+      if (!user) return;
+      await addDoc(advancesPath(user.uid), {
         ...data,
         createdAt: Date.now(),
       });
     },
-    [user, siteId]
+    [user]
   );
 
   const getAdvancesForMonth = useCallback(
@@ -103,3 +106,7 @@ export function useAdvances(siteId: string | null) {
     getAdvancesForWorker,
   };
 }
+
+// Kept as a named export to satisfy any lingering imports in older code.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export { getDocs };

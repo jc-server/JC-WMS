@@ -12,13 +12,13 @@ import AuthScreen from '@/components/AuthScreen';
 import WorkerManagement from '@/components/WorkerManagement';
 import AttendanceMatrix from '@/components/AttendanceMatrix';
 import WageSummaryView from '@/components/WageSummary';
-import SiteSelector from '@/components/SiteSelector';
+import SiteLedger from '@/components/SiteLedger';
 import MetricsRibbon from '@/components/MetricsRibbon';
 import WorkerProfile from '@/components/WorkerProfile';
 import InstallPwaButton from '@/components/InstallPwaButton';
 import NetworkStatus from '@/components/NetworkStatus';
 
-type Tab = 'attendance' | 'workers' | 'wages';
+type Tab = 'attendance' | 'workers' | 'wages' | 'ledger';
 
 function todayStr() {
   const d = new Date();
@@ -30,23 +30,29 @@ export default function App() {
   const { user, loading, signOut } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [tab, setTab] = useState<Tab>('attendance');
-  const [siteId, setSiteId] = useState<string | null>(() => localStorage.getItem('jcwms-site'));
-  const [todayMetrics, setTodayMetrics] = useState({ present: 0, absent: 0, half: 0, otHours: 0, advancePayout: 0, dailyCost: 0 });
+  const [todayMetrics, setTodayMetrics] = useState({
+    present: 0,
+    absent: 0,
+    half: 0,
+    otHours: 0,
+    advancePayout: 0,
+    dailyCost: 0,
+  });
   const [imgError, setImgError] = useState(false);
 
-  const { workers, updateWorker, deleteWorker } = useWorkers(siteId);
-  const { records: todayAtt } = useAttendance(siteId, todayStr());
-  const { advances } = useAdvances(siteId);
+  const { workers, updateWorker, deleteWorker } = useWorkers();
+  const { records: todayAtt } = useAttendance(todayStr());
+  const { advances } = useAdvances();
   const [profileWorker, setProfileWorker] = useState<Worker | null>(null);
 
-  useEffect(() => {
-    if (siteId) localStorage.setItem('jcwms-site', siteId);
-  }, [siteId]);
-
-  // Compute live metrics for today
+  // Live metrics for today (global — no site filter).
   useEffect(() => {
     const activeWorkers = workers.filter((w) => w.active);
-    let present = 0, absent = 0, half = 0, otHours = 0, dailyCost = 0;
+    let present = 0,
+      absent = 0,
+      half = 0,
+      otHours = 0,
+      dailyCost = 0;
 
     activeWorkers.forEach((w) => {
       const r = todayAtt[w.id];
@@ -59,6 +65,8 @@ export default function App() {
       } else if (status === 'half') {
         half++;
         dailyCost += w.dailyWage * 0.5 + ot * w.overtimeHourlyRate;
+      } else if (status === 'holiday') {
+        dailyCost += ot * w.overtimeHourlyRate;
       } else {
         absent++;
         dailyCost += ot * w.overtimeHourlyRate;
@@ -70,7 +78,14 @@ export default function App() {
       .filter((a) => a.date === todayStr())
       .reduce((sum, a) => sum + a.amount, 0);
 
-    setTodayMetrics({ present, absent, half, otHours, advancePayout: todayAdvancePayout, dailyCost });
+    setTodayMetrics({
+      present,
+      absent,
+      half,
+      otHours,
+      advancePayout: todayAdvancePayout,
+      dailyCost,
+    });
   }, [workers, todayAtt, advances]);
 
   if (loading) {
@@ -87,6 +102,7 @@ export default function App() {
     { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
     { id: 'workers', label: 'Workers', icon: Users },
     { id: 'wages', label: 'Wages', icon: Wallet },
+    { id: 'ledger', label: 'Site Ledger', icon: Building2 },
   ];
 
   return (
@@ -108,11 +124,11 @@ export default function App() {
             </div>
             <div className="hidden sm:block">
               <h1 className="text-slate-900 dark:text-white font-bold text-sm leading-tight">JC</h1>
-              <p className="text-amber-600 dark:text-amber-400 font-medium text-xs mt-0.5">Workers Management System</p>
+              <p className="text-amber-600 dark:text-amber-400 font-medium text-xs mt-0.5">
+                Workers Management System
+              </p>
             </div>
           </div>
-
-          <SiteSelector currentSiteId={siteId} onSelectSite={setSiteId} />
 
           <div className="flex items-center gap-2">
             <NetworkStatus />
@@ -122,11 +138,7 @@ export default function App() {
               className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-all active:scale-90"
               title={theme === 'dark' ? 'Switch to Light' : 'Switch to Dark'}
             >
-              {theme === 'dark' ? (
-                <Sun className="w-4 h-4" />
-              ) : (
-                <Moon className="w-4 h-4" />
-              )}
+              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
             <button
               onClick={signOut}
@@ -138,7 +150,7 @@ export default function App() {
           </div>
         </div>
 
-        <nav className="max-w-5xl mx-auto px-4 flex gap-1 pb-2">
+        <nav className="max-w-5xl mx-auto px-4 flex gap-1 pb-2 overflow-x-auto">
           {tabs.map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
@@ -146,7 +158,7 @@ export default function App() {
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all active:scale-95 ${
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all active:scale-95 whitespace-nowrap ${
                   active
                     ? 'bg-amber-400 text-slate-900 shadow-sm'
                     : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-850'
@@ -163,11 +175,12 @@ export default function App() {
         {tab === 'attendance' && (
           <>
             <MetricsRibbon {...todayMetrics} />
-            <AttendanceMatrix workers={workers} siteId={siteId} onOpenProfile={setProfileWorker} />
+            <AttendanceMatrix workers={workers} onOpenProfile={setProfileWorker} />
           </>
         )}
-        {tab === 'workers' && <WorkerManagement siteId={siteId} onOpenProfile={setProfileWorker} />}
-        {tab === 'wages' && <WageSummaryView workers={workers} siteId={siteId} onOpenProfile={setProfileWorker} />}
+        {tab === 'workers' && <WorkerManagement onOpenProfile={setProfileWorker} />}
+        {tab === 'wages' && <WageSummaryView workers={workers} onOpenProfile={setProfileWorker} />}
+        {tab === 'ledger' && <SiteLedger />}
       </main>
 
       <footer className="max-w-5xl mx-auto px-4 py-4 text-center text-xs text-zinc-500 dark:text-zinc-500 pb-[max(1rem,env(safe-area-inset-bottom))]">
@@ -185,7 +198,6 @@ export default function App() {
       {profileWorker && (
         <WorkerProfile
           worker={profileWorker}
-          siteId={siteId}
           onClose={() => setProfileWorker(null)}
           onUpdate={updateWorker}
           onDelete={deleteWorker}
