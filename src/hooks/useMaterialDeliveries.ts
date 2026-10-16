@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   collection,
-  addDoc,
   deleteDoc,
   doc,
   onSnapshot,
   query,
   orderBy,
+  updateDoc,
+  writeBatch,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
@@ -43,13 +44,12 @@ export type MaterialDelivery = {
 };
 
 export type MaterialDeliveryInput = Omit<MaterialDelivery, 'id' | 'createdAt'> & {
-  /**
-   * When true (and `driverPaid > 0` and `siteId` is set), a matching `debit`
-   * transaction is also written to the selected site's subcollection so the
-   * Site Ledger reflects the upfront material cost automatically.
-   */
   logToSiteLedger?: boolean;
 };
+
+export type MaterialDeliveryUpdate = Partial<
+  Omit<MaterialDelivery, 'id' | 'createdAt'>
+>;
 
 function deliveriesPath(user: string) {
   return collection(db, 'users', user, 'deliveries');
@@ -110,45 +110,64 @@ export function useMaterialDeliveries() {
     return () => unsub();
   }, [user]);
 
+  /**
+   * Saves a delivery and (optionally) its Site Ledger bridge transaction
+   * in a single Firestore batch. Both writes commit atomically — the
+   * delivery is never left without its matching ledger entry, and the
+   * ledger entry is never left without its delivery.
+   */
   const addDelivery = useCallback(
     async (input: MaterialDeliveryInput, supplierName?: string) => {
       if (!user) throw new Error('Not signed in.');
       const { logToSiteLedger, ...payload } = input;
+      const uid = user.uid;
 
-      try {
-        await addDoc(deliveriesPath(user.uid), {
-          ...payload,
+      const batch = writeBatch(db);
+      const deliveryRef = doc(collection(db, 'users', uid, 'deliveries'));
+      batch.set(deliveryRef, { ...payload, createdAt: Date.now() });
+
+      if (logToSiteLedger && payload.siteId && payload.driverPaid > 0) {
+        const txRef = doc(
+          collection(db, 'users', uid, 'sites', payload.siteId, 'transactions')
+        );
+        batch.set(txRef, {
+          type: 'debit',
+          amount: payload.driverPaid,
+          date: payload.date,
+          category: `Material - ${payload.materialType}`,
+          paymentMode: 'Cash',
+          remark: `Driver paid${supplierName ? ` · ${supplierName}` : ''}${
+            payload.billNumber ? ` · Bill #${payload.billNumber}` : ''
+          }`,
           createdAt: Date.now(),
         });
-      } catch (err) {
-        console.error('addDelivery error:', err);
-        throw new Error('Could not save delivery. Please check your connection and try again.');
       }
 
-      // Site Ledger bridge — only fires when explicitly requested, a site is
-      // chosen, and there was an upfront driver payment.
-      if (logToSiteLedger && payload.siteId && payload.driverPaid > 0) {
-        try {
-          await addDoc(
-            collection(db, 'users', user.uid, 'sites', payload.siteId, 'transactions'),
-            {
-              type: 'debit',
-              amount: payload.driverPaid,
-              date: payload.date,
-              category: `Material - ${payload.materialType}`,
-              paymentMode: 'Cash',
-              remark: `Driver paid${supplierName ? ` · ${supplierName}` : ''}${
-                payload.billNumber ? ` · Bill #${payload.billNumber}` : ''
-              }`,
-              createdAt: Date.now(),
-            }
-          );
-        } catch (bridgeErr) {
-          console.error('Site ledger bridge error:', bridgeErr);
-          throw new Error(
-            'Delivery saved, but the Site Ledger entry could not be created. Please verify the site still exists and try again.'
-          );
-        }
+      try {
+        await batch.commit();
+      } catch (err) {
+        console.error('addDelivery error:', err);
+        throw new Error(
+          'Could not save delivery. Please check your connection and try again.'
+        );
+      }
+    },
+    [user]
+  );
+
+  /**
+   * Updates an existing delivery's fields. Does NOT touch the site ledger
+   * bridge — if you need to alter the linked transaction, delete and
+   * recreate the delivery, or edit the site transaction separately.
+   */
+  const updateDelivery = useCallback(
+    async (id: string, updates: MaterialDeliveryUpdate) => {
+      if (!user) throw new Error('Not signed in.');
+      try {
+        await updateDoc(doc(db, 'users', user.uid, 'deliveries', id), updates);
+      } catch (err) {
+        console.error('updateDelivery error:', err);
+        throw new Error('Could not update delivery. Please try again.');
       }
     },
     [user]
@@ -172,6 +191,7 @@ export function useMaterialDeliveries() {
     loading,
     error,
     addDelivery,
+    updateDelivery,
     deleteDelivery,
   };
 }

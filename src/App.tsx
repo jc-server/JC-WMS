@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import {
   Users, CalendarCheck, Wallet, LogOut, Loader2, Sun, Moon, Building2,
   Activity, Package,
@@ -12,17 +12,27 @@ import { useAdvances } from '@/hooks/useAdvances';
 import AuthScreen from '@/components/AuthScreen';
 import WorkerManagement from '@/components/WorkerManagement';
 import AttendanceMatrix from '@/components/AttendanceMatrix';
-import WageSummaryView from '@/components/WageSummary';
-import SiteLedger from '@/components/SiteLedger';
-import MaterialLedger from '@/components/MaterialLedger';
 import MetricsRibbon from '@/components/MetricsRibbon';
 import WorkerProfile from '@/components/WorkerProfile';
 import InstallPwaButton from '@/components/InstallPwaButton';
 import NetworkStatus from '@/components/NetworkStatus';
-import SystemHealth from '@/components/SystemHealth';
 import { todayStr } from '@/utils/date';
 
+// Lazy-loaded tabs — code for these is only fetched when the user opens them.
+const WageSummaryView = lazy(() => import('@/components/WageSummary'));
+const SiteLedger = lazy(() => import('@/components/SiteLedger'));
+const MaterialLedger = lazy(() => import('@/components/MaterialLedger'));
+const SystemHealth = lazy(() => import('@/components/SystemHealth'));
+
 type Tab = 'attendance' | 'workers' | 'wages' | 'ledger' | 'materials' | 'system';
+
+function TabLoader() {
+  return (
+    <div className="flex items-center justify-center py-16 text-slate-400">
+      <Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading…
+    </div>
+  );
+}
 
 export default function App() {
   const { user, loading, signOut } = useAuth();
@@ -181,19 +191,21 @@ export default function App() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-6 flex-1 w-full">
-        {tab === 'attendance' && (
-          <>
-            <MetricsRibbon {...todayMetrics} />
-            <AttendanceMatrix workers={workers} onOpenProfile={setProfileWorker} />
-          </>
-        )}
-        {tab === 'workers' && <WorkerManagement onOpenProfile={setProfileWorker} />}
-        {tab === 'wages' && (
-          <WageSummaryView workers={workers} onOpenProfile={setProfileWorker} />
-        )}
-        {tab === 'ledger' && <SiteLedger />}
-        {tab === 'materials' && <MaterialLedger />}
-        {tab === 'system' && <SystemHealth />}
+        <Suspense fallback={<TabLoader />}>
+          {tab === 'attendance' && (
+            <>
+              <MetricsRibbon {...todayMetrics} />
+              <AttendanceMatrix workers={workers} onOpenProfile={setProfileWorker} />
+            </>
+          )}
+          {tab === 'workers' && <WorkerManagement onOpenProfile={setProfileWorker} />}
+          {tab === 'wages' && (
+            <WageSummaryView workers={workers} onOpenProfile={setProfileWorker} />
+          )}
+          {tab === 'ledger' && <SiteLedger />}
+          {tab === 'materials' && <MaterialLedger />}
+          {tab === 'system' && <SystemHealth />}
+        </Suspense>
       </main>
 
       <footer className="max-w-5xl mx-auto px-4 py-4 text-center text-xs text-zinc-500 dark:text-zinc-500 pb-[max(1rem,env(safe-area-inset-bottom))]">

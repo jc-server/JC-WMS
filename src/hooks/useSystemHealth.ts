@@ -1,5 +1,11 @@
 import { useState, useCallback, useEffect } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
+import {
+  collection,
+  getCountFromServer,
+  getDocs,
+  query,
+  where,
+} from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 
@@ -9,6 +15,7 @@ export type SystemCounts = {
   advances: number;
   sites: number;
   transactions: number;
+  totalDocs: number;
   materials: {
     suppliers: number;
     deliveries: number;
@@ -21,17 +28,22 @@ export type SystemCounts = {
 
 export type SystemHealthState = {
   counts: SystemCounts | null;
-  storageBytes: number;
   loading: boolean;
   error: string | null;
   lastChecked: number | null;
   refresh: () => Promise<void>;
 };
 
+/**
+ * Uses Firestore aggregation queries (`getCountFromServer`) so refreshing
+ * costs O(1) reads per collection regardless of document count, instead of
+ * O(n). Derived metrics that require summing/scanning fields (truck counts,
+ * pending commissions) are only read from the two small collections that
+ * need them — `deliveries` and `commissions`.
+ */
 export function useSystemHealth(): SystemHealthState {
   const { user } = useAuth();
   const [counts, setCounts] = useState<SystemCounts | null>(null);
-  const [storageBytes, setStorageBytes] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastChecked, setLastChecked] = useState<number | null>(null);
@@ -39,7 +51,6 @@ export function useSystemHealth(): SystemHealthState {
   const refresh = useCallback(async () => {
     if (!user) {
       setCounts(null);
-      setStorageBytes(0);
       setLoading(false);
       return;
     }
@@ -47,61 +58,55 @@ export function useSystemHealth(): SystemHealthState {
     setLoading(true);
     setError(null);
     try {
+      const uid = user.uid;
+
+      // ── Phase 1: parallel fast counts + small-collection reads ──
       const [
-        workersSnap,
-        attendanceSnap,
-        advancesSnap,
-        sitesSnap,
-        suppliersSnap,
+        workersTotalRes,
+        workersInactiveRes,
+        attendanceRes,
+        advancesRes,
+        sitesRes,
+        suppliersRes,
+        deliveriesRes,
+        commissionsRes,
+        paymentsRes,
         deliveriesSnap,
         commissionsSnap,
-        supplierPaymentsSnap,
+        sitesSnap,
       ] = await Promise.all([
-        getDocs(collection(db, 'users', user.uid, 'workers')),
-        getDocs(collection(db, 'users', user.uid, 'attendance')),
-        getDocs(collection(db, 'users', user.uid, 'advances')),
-        getDocs(collection(db, 'users', user.uid, 'sites')),
-        getDocs(collection(db, 'users', user.uid, 'suppliers')),
-        getDocs(collection(db, 'users', user.uid, 'deliveries')),
-        getDocs(collection(db, 'users', user.uid, 'commissions')),
-        getDocs(collection(db, 'users', user.uid, 'supplierPayments')),
+        getCountFromServer(collection(db, 'users', uid, 'workers')),
+        getCountFromServer(
+          query(
+            collection(db, 'users', uid, 'workers'),
+            where('active', '==', false)
+          )
+        ),
+        getCountFromServer(collection(db, 'users', uid, 'attendance')),
+        getCountFromServer(collection(db, 'users', uid, 'advances')),
+        getCountFromServer(collection(db, 'users', uid, 'sites')),
+        getCountFromServer(collection(db, 'users', uid, 'suppliers')),
+        getCountFromServer(collection(db, 'users', uid, 'deliveries')),
+        getCountFromServer(collection(db, 'users', uid, 'commissions')),
+        getCountFromServer(collection(db, 'users', uid, 'supplierPayments')),
+        // These two collections are small but need derived metrics.
+        getDocs(collection(db, 'users', uid, 'deliveries')),
+        getDocs(collection(db, 'users', uid, 'commissions')),
+        // We need to enumerate sites to count their transactions.
+        getDocs(collection(db, 'users', uid, 'sites')),
       ]);
 
-      let transactions = 0;
-      let bytes = 0;
+      // ── Phase 2: per-site transaction counts (parallel) ──
+      const txCounts = await Promise.all(
+        sitesSnap.docs.map((siteDoc) =>
+          getCountFromServer(
+            collection(db, 'users', uid, 'sites', siteDoc.id, 'transactions')
+          )
+        )
+      );
+      const transactions = txCounts.reduce((sum, c) => sum + c.data().count, 0);
 
-      const measure = (snap: typeof workersSnap) => {
-        snap.docs.forEach((d) => {
-          bytes += new Blob([
-            JSON.stringify({ id: d.id, ...(d.data() as object) }),
-          ]).size;
-        });
-      };
-
-      measure(workersSnap);
-      measure(attendanceSnap);
-      measure(advancesSnap);
-      measure(sitesSnap);
-      measure(suppliersSnap);
-      measure(deliveriesSnap);
-      measure(commissionsSnap);
-      measure(supplierPaymentsSnap);
-
-      for (const siteDoc of sitesSnap.docs) {
-        const txSnap = await getDocs(collection(siteDoc.ref, 'transactions'));
-        transactions += txSnap.size;
-        measure(txSnap);
-      }
-
-      let activeWorkers = 0;
-      let inactiveWorkers = 0;
-      workersSnap.forEach((d) => {
-        const w = d.data() as { active?: boolean };
-        if (w.active === false) inactiveWorkers++;
-        else activeWorkers++;
-      });
-
-      // Material Ledger aggregates.
+      // ── Derived metrics ──
       let trucks = 0;
       deliveriesSnap.forEach((d) => {
         const data = d.data() as { truckCount?: number };
@@ -114,26 +119,49 @@ export function useSystemHealth(): SystemHealthState {
         if (data.status !== 'received') pendingCommissions++;
       });
 
+      const totalWorkers = workersTotalRes.data().count;
+      const inactiveWorkers = workersInactiveRes.data().count;
+      const activeWorkers = totalWorkers - inactiveWorkers;
+
+      const attendance = attendanceRes.data().count;
+      const advances = advancesRes.data().count;
+      const sites = sitesRes.data().count;
+      const suppliers = suppliersRes.data().count;
+      const deliveries = deliveriesRes.data().count;
+      const commissions = commissionsRes.data().count;
+      const supplierPayments = paymentsRes.data().count;
+
+      const totalDocs =
+        totalWorkers +
+        attendance +
+        advances +
+        sites +
+        transactions +
+        suppliers +
+        deliveries +
+        commissions +
+        supplierPayments;
+
       setCounts({
         workers: {
-          total: workersSnap.size,
+          total: totalWorkers,
           active: activeWorkers,
           inactive: inactiveWorkers,
         },
-        attendance: attendanceSnap.size,
-        advances: advancesSnap.size,
-        sites: sitesSnap.size,
+        attendance,
+        advances,
+        sites,
         transactions,
+        totalDocs,
         materials: {
-          suppliers: suppliersSnap.size,
-          deliveries: deliveriesSnap.size,
+          suppliers,
+          deliveries,
           trucks,
-          commissions: commissionsSnap.size,
+          commissions,
           pendingCommissions,
-          supplierPayments: supplierPaymentsSnap.size,
+          supplierPayments,
         },
       });
-      setStorageBytes(bytes);
       setLastChecked(Date.now());
     } catch (err) {
       console.error('System health refresh error:', err);
@@ -147,13 +175,5 @@ export function useSystemHealth(): SystemHealthState {
     refresh();
   }, [refresh]);
 
-  return { counts, storageBytes, loading, error, lastChecked, refresh };
-}
-
-export function formatBytes(bytes: number): string {
-  if (!isFinite(bytes) || bytes <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  const value = bytes / Math.pow(1024, i);
-  return `${value.toFixed(value >= 100 || i === 0 ? 0 : value >= 10 ? 1 : 2)} ${units[i]}`;
+  return { counts, loading, error, lastChecked, refresh };
 }

@@ -36,6 +36,10 @@ export type CommissionInput = Omit<
   'id' | 'createdAt' | 'status' | 'receivedAmount' | 'receivedDate'
 >;
 
+export type CommissionUpdate = Partial<
+  Omit<Commission, 'id' | 'createdAt' | 'receivedAmount' | 'status' | 'receivedDate'>
+>;
+
 function commissionsPath(user: string) {
   return collection(db, 'users', user, 'commissions');
 }
@@ -114,9 +118,24 @@ export function useCommissions() {
   );
 
   /**
-   * Adds `amountReceivedNow` to the commission's received total and recomputes
-   * the status. Amount is clamped so we never exceed the commission value.
+   * Update editable fields on a commission. Amount is NOT editable here —
+   * changing it would invalidate `receivedAmount`/`status`, so the caller
+   * must delete and recreate the commission if they need to change the
+   * total.
    */
+  const updateCommission = useCallback(
+    async (id: string, updates: CommissionUpdate) => {
+      if (!user) throw new Error('Not signed in.');
+      try {
+        await updateDoc(doc(db, 'users', user.uid, 'commissions', id), updates);
+      } catch (err) {
+        console.error('updateCommission error:', err);
+        throw new Error('Could not update commission. Please try again.');
+      }
+    },
+    [user]
+  );
+
   const recordReceipt = useCallback(
     async (id: string, amountReceivedNow: number, date: string) => {
       if (!user) throw new Error('Not signed in.');
@@ -181,6 +200,7 @@ export function useCommissions() {
     loading,
     error,
     addCommission,
+    updateCommission,
     recordReceipt,
     resetReceipt,
     deleteCommission,

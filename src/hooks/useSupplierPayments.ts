@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   collection,
   addDoc,
+  updateDoc,
   deleteDoc,
   doc,
   onSnapshot,
@@ -32,6 +33,7 @@ export type SupplierPayment = {
 };
 
 export type SupplierPaymentInput = Omit<SupplierPayment, 'id' | 'createdAt'>;
+export type SupplierPaymentUpdate = Partial<Omit<SupplierPayment, 'id' | 'createdAt'>>;
 
 function paymentsPath(user: string) {
   return collection(db, 'users', user, 'supplierPayments');
@@ -99,6 +101,19 @@ export function useSupplierPayments() {
     [user]
   );
 
+  const updatePayment = useCallback(
+    async (id: string, updates: SupplierPaymentUpdate) => {
+      if (!user) throw new Error('Not signed in.');
+      try {
+        await updateDoc(doc(db, 'users', user.uid, 'supplierPayments', id), updates);
+      } catch (err) {
+        console.error('updatePayment error:', err);
+        throw new Error('Could not update payment. Please try again.');
+      }
+    },
+    [user]
+  );
+
   const deletePayment = useCallback(
     async (id: string) => {
       if (!user) throw new Error('Not signed in.');
@@ -112,5 +127,5 @@ export function useSupplierPayments() {
     [user]
   );
 
-  return { payments, loading, addPayment, deletePayment };
+  return { payments, loading, addPayment, updatePayment, deletePayment };
 }

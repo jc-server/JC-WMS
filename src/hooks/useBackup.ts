@@ -23,11 +23,6 @@ export type BackupPayload = {
     sites: BackupDoc[];
     transactionsBySite: Record<string, BackupDoc[]>;
     roles: string[] | null;
-    /**
-     * Material Ledger collections. Optional for backwards compatibility —
-     * backups taken before the Material Ledger feature was added will not
-     * contain these keys. Restore treats `undefined` as an empty array.
-     */
     suppliers?: BackupDoc[];
     deliveries?: BackupDoc[];
     commissions?: BackupDoc[];
@@ -201,8 +196,6 @@ export function useBackup() {
           ]);
         }
 
-        // ── Material Ledger (optional in older backups) ────────────
-
         setProgress('Restoring suppliers…');
         await writeChunks(
           (payload.data.suppliers ?? []).map((s) => {
@@ -249,7 +242,31 @@ export function useBackup() {
     [user]
   );
 
-  return { backup, restore, busy, progress, error };
+  /**
+   * Wipes ALL of the current user's data — workers, attendance, advances,
+   * sites + their transactions, suppliers, deliveries, commissions,
+   * supplierPayments and role settings.
+   *
+   * Exposed separately so the "Clear All Data" button doesn't have to fake
+   * an empty restore payload.
+   */
+  const wipeEverything = useCallback(async () => {
+    if (!user) throw new Error('Not signed in.');
+    setBusy(true);
+    setError(null);
+    setProgress('Clearing existing data…');
+    try {
+      await wipeAll(user.uid);
+      setProgress('All data cleared.');
+    } catch (err) {
+      setError((err as Error).message);
+      throw err;
+    } finally {
+      setBusy(false);
+    }
+  }, [user]);
+
+  return { backup, restore, wipeEverything, busy, progress, error };
 }
 
 type WriteItem = { ref: DocumentReference; data: Record<string, unknown> };
@@ -266,7 +283,7 @@ async function writeChunks(items: WriteItem[]) {
 }
 
 async function wipeAll(uid: string) {
-  // 1. Wipe transactions under each site first (sites must exist to find them).
+  // 1. Wipe transactions under each site first.
   const sitesSnap = await getDocs(collection(db, 'users', uid, 'sites'));
   for (const siteDoc of sitesSnap.docs) {
     const txSnap = await getDocs(collection(siteDoc.ref, 'transactions'));
@@ -277,9 +294,7 @@ async function wipeAll(uid: string) {
     }
   }
 
-  // 2. Wipe every top-level collection under the user, including the new
-  //    Material Ledger collections. Keeping this as a single list means
-  //    future collections are one entry away from being covered.
+  // 2. Wipe every top-level collection under the user.
   const topLevel = [
     'workers',
     'attendance',

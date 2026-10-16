@@ -3,20 +3,25 @@ import {
   Activity, Database, HardDriveDownload, HardDriveUpload, RefreshCw,
   CheckCircle2, AlertTriangle, Users, CalendarCheck, Wallet, Building2,
   Receipt, Loader2, ShieldCheck, Wifi, WifiOff, Trash2,
-  Clock, Package,
+  Clock, Package, FileStack,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { useSystemHealth, formatBytes } from '@/hooks/useSystemHealth';
+import { useSystemHealth } from '@/hooks/useSystemHealth';
 import { useBackup, type BackupPayload } from '@/hooks/useBackup';
 import { downloadJson } from '@/utils/csv';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
-const FIREBASE_FREE_TIER_BYTES = 1 * 1024 * 1024 * 1024; // 1 GB
-
 export default function SystemHealth() {
   const { user } = useAuth();
-  const { counts, storageBytes, loading, error, lastChecked, refresh } = useSystemHealth();
-  const { backup, restore, busy, progress, error: backupError } = useBackup();
+  const { counts, loading, error, lastChecked, refresh } = useSystemHealth();
+  const {
+    backup,
+    restore,
+    wipeEverything,
+    busy,
+    progress,
+    error: backupError,
+  } = useBackup();
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -25,8 +30,6 @@ export default function SystemHealth() {
   const [restoreMode, setRestoreMode] = useState<'merge' | 'replace'>('merge');
   const [toast, setToast] = useState<{ msg: string; type: 'saved' | 'error' } | null>(null);
 
-  // Live online/offline listener — properly registered via useEffect
-  // so its cleanup runs on unmount.
   useEffect(() => {
     const on = () => setIsOnline(true);
     const off = () => setIsOnline(false);
@@ -91,7 +94,16 @@ export default function SystemHealth() {
     }
   };
 
-  const storagePercent = Math.min(100, (storageBytes / FIREBASE_FREE_TIER_BYTES) * 100);
+  const handleClearAll = async () => {
+    try {
+      await wipeEverything();
+      showToast('All data cleared.', 'saved');
+      setShowClearConfirm(false);
+      await refresh();
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    }
+  };
 
   const health = loading
     ? 'checking'
@@ -189,32 +201,21 @@ export default function SystemHealth() {
         </div>
       </div>
 
-      {/* Storage usage */}
+      {/* Total documents */}
       <div className="bg-white dark:bg-zinc-900 rounded-2xl p-5 border border-slate-200 dark:border-zinc-800 mb-5">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <HardDriveDownload className="w-5 h-5 text-blue-500" />
-            <h3 className="font-bold text-slate-900 dark:text-white text-sm">Storage Usage</h3>
+            <FileStack className="w-5 h-5 text-blue-500" />
+            <h3 className="font-bold text-slate-900 dark:text-white text-sm">Total Documents</h3>
           </div>
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            {formatBytes(storageBytes)} / 1 GB (free tier)
+          <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+            {counts?.totalDocs ?? 0}
           </span>
         </div>
-        <div className="w-full h-2.5 bg-slate-100 dark:bg-zinc-800 rounded-full overflow-hidden">
-          <div
-            className={`h-full transition-all ${
-              storagePercent > 80
-                ? 'bg-red-500'
-                : storagePercent > 50
-                ? 'bg-amber-500'
-                : 'bg-emerald-500'
-            }`}
-            style={{ width: `${storagePercent}%` }}
-          />
-        </div>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-          Estimated storage footprint of your data. Free tier limit is 1 GB per project.
-          Firestore charges apply when shared across multiple users.
+          Counts are computed using Firestore aggregation queries — refreshing stays fast
+          regardless of how much data you have. For real storage usage, see the Firebase
+          Console → Firestore → Usage tab.
         </p>
       </div>
 
@@ -473,37 +474,7 @@ export default function SystemHealth() {
         variant="danger"
         busy={busy}
         onCancel={() => setShowClearConfirm(false)}
-        onConfirm={async () => {
-          try {
-            // Restore with an empty payload in 'replace' mode → wipes everything.
-            await restore(
-              {
-                version: 1,
-                app: 'JCWMS',
-                exportedAt: new Date().toISOString(),
-                exportedBy: user?.uid ?? '',
-                data: {
-                  workers: [],
-                  attendance: [],
-                  advances: [],
-                  sites: [],
-                  transactionsBySite: {},
-                  roles: null,
-                  suppliers: [],
-                  deliveries: [],
-                  commissions: [],
-                  supplierPayments: [],
-                },
-              },
-              'replace'
-            );
-            showToast('All data cleared.', 'saved');
-            setShowClearConfirm(false);
-            await refresh();
-          } catch (err) {
-            showToast((err as Error).message, 'error');
-          }
-        }}
+        onConfirm={handleClearAll}
       />
     </div>
   );
