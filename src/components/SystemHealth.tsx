@@ -3,17 +3,39 @@ import {
   Activity, Database, HardDriveDownload, HardDriveUpload, RefreshCw,
   CheckCircle2, AlertTriangle, Users, CalendarCheck, Wallet, Building2,
   Receipt, Loader2, ShieldCheck, Wifi, WifiOff, Trash2,
-  Clock, Package, FileStack,
+  Clock, Package, FileStack, HardDrive,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { useSystemHealth } from '@/hooks/useSystemHealth';
+import { useSystemHealth, formatBytes } from '@/hooks/useSystemHealth';
 import { useBackup, type BackupPayload } from '@/hooks/useBackup';
 import { downloadJson } from '@/utils/csv';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
+const FIREBASE_FREE_TIER_BYTES = 1 * 1024 * 1024 * 1024; // 1 GiB
+
+function relativeTime(ts: number | null): string {
+  if (!ts) return 'never';
+  const diff = Date.now() - ts;
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
 export default function SystemHealth() {
   const { user } = useAuth();
-  const { counts, loading, error, lastChecked, refresh } = useSystemHealth();
+  const {
+    counts,
+    storageBytes,
+    storageComputedAt,
+    loading,
+    error,
+    lastChecked,
+    refresh,
+  } = useSystemHealth();
   const {
     backup,
     restore,
@@ -105,6 +127,21 @@ export default function SystemHealth() {
     }
   };
 
+  const storagePercent = Math.min(
+    100,
+    (storageBytes / FIREBASE_FREE_TIER_BYTES) * 100
+  );
+  const storageBarColor =
+    storagePercent > 80
+      ? 'bg-red-500'
+      : storagePercent > 50
+      ? 'bg-amber-500'
+      : 'bg-emerald-500';
+
+  // Even 1% of 1 GiB is ~10 MB. Show a hairline at minimum so the user
+  // can see the bar exists but knows it's tiny.
+  const storageBarWidth = Math.max(storagePercent, storageBytes > 0 ? 1 : 0);
+
   const health = loading
     ? 'checking'
     : error
@@ -175,7 +212,7 @@ export default function SystemHealth() {
           className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-slate-200 font-semibold rounded-xl hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors text-xs active:scale-95 disabled:opacity-50"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
+          {loading ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
 
@@ -201,21 +238,55 @@ export default function SystemHealth() {
         </div>
       </div>
 
+      {/* Storage usage */}
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl p-5 border border-slate-200 dark:border-zinc-800 mb-5">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <HardDrive className="w-5 h-5 text-blue-500" />
+            <h3 className="font-bold text-slate-900 dark:text-white text-sm">Storage Usage</h3>
+          </div>
+          <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+            {formatBytes(storageBytes)} / 1 GiB
+          </span>
+        </div>
+        <div className="w-full h-3 bg-slate-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+          <div
+            className={`h-full transition-all ${storageBarColor}`}
+            style={{ width: `${storageBarWidth}%` }}
+          />
+        </div>
+        <div className="flex items-center justify-between mt-2">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {storageBytes > 0
+              ? `${storagePercent < 0.01 ? '<0.01' : storagePercent.toFixed(2)}% of Firebase free-tier limit`
+              : 'Not yet measured'}
+          </p>
+          <p className="text-[11px] text-slate-400 dark:text-slate-500">
+            {storageComputedAt ? `measured ${relativeTime(storageComputedAt)}` : ''}
+          </p>
+        </div>
+        <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-2 leading-relaxed">
+          Estimated from the JSON size of every document in your account.
+          Real Firestore usage includes index overhead, so the actual figure in
+          Firebase Console → Firestore → Usage may be slightly higher. Auto-refreshes
+          hourly; click Refresh to recompute now.
+        </p>
+      </div>
+
       {/* Total documents */}
       <div className="bg-white dark:bg-zinc-900 rounded-2xl p-5 border border-slate-200 dark:border-zinc-800 mb-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <FileStack className="w-5 h-5 text-blue-500" />
+            <FileStack className="w-5 h-5 text-indigo-500" />
             <h3 className="font-bold text-slate-900 dark:text-white text-sm">Total Documents</h3>
           </div>
-          <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+          <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
             {counts?.totalDocs ?? 0}
           </span>
         </div>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-          Counts are computed using Firestore aggregation queries — refreshing stays fast
-          regardless of how much data you have. For real storage usage, see the Firebase
-          Console → Firestore → Usage tab.
+          Every worker, attendance record, advance, site, transaction, supplier,
+          delivery, commission, payment and settings document across your account.
         </p>
       </div>
 
