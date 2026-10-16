@@ -22,7 +22,7 @@ export type WageBreakdownRow = {
  * Formula:
  *   present * dailyWage
  * + half    * 0.5 * dailyWage
- * + otHours * overtimeHourlyRate     (OT pays on holidays too)
+ * + otHours * overtimeHourlyRate     (OT pays on holidays too, but NEVER on absent days)
  */
 export function useWageCalculator(
   workers: Worker[],
@@ -58,8 +58,12 @@ export function useWageCalculator(
           if (status === 'present') map[wid].present++;
           else if (status === 'half') map[wid].half++;
           else if (status === 'holiday') map[wid].holiday++;
-          // Holidays still count for OT pay.
-          map[wid].otHours += Number(data.overtimeHours ?? 0);
+
+          // Holidays and half-days still count for OT pay.
+          // Absent days do not — the worker was not on site.
+          if (status !== 'absent') {
+            map[wid].otHours += Number(data.overtimeHours ?? 0);
+          }
         });
         setRecords(map);
         setLoading(false);

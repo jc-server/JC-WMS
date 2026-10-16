@@ -96,7 +96,6 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
         return;
       }
 
-      // Preserve existing local state if it already matches the server.
       if (!dateChanged && existing && serverRecord) {
         const unchanged =
           existing.status === serverRecord.status &&
@@ -119,7 +118,6 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
       changed = true;
     });
 
-    // Detect removed workers.
     if (Object.keys(current).length !== Object.keys(fresh).length) changed = true;
 
     localRef.current = fresh;
@@ -204,11 +202,17 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
   );
 
   const setStatus = (workerId: string, status: AttendanceStatus) => {
-    updateLocalField(workerId, { status });
+    // Marking a worker absent must also zero any OT — an absent worker
+    // cannot have worked overtime hours.
+    const updates: Partial<LocalEntry> = { status };
+    if (status === 'absent') updates.overtimeHours = 0;
+    updateLocalField(workerId, updates);
     autoSave(workerId);
   };
 
   const setOvertime = (workerId: string, ot: number) => {
+    // Guard: an absent worker cannot log OT.
+    if (getStatus(workerId) === 'absent') return;
     updateLocalField(workerId, {
       overtimeHours: Math.max(0, Math.round(ot * 100) / 100),
     });
@@ -305,7 +309,7 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
       else if (s === 'half') acc.half++;
       else if (s === 'holiday') acc.holiday++;
       else acc.absent++;
-      acc.ot += getOT(w.id);
+      if (s !== 'absent') acc.ot += getOT(w.id);
       return acc;
     },
     { present: 0, half: 0, absent: 0, holiday: 0, ot: 0 }
@@ -415,6 +419,7 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
             const isSavingThis = savingWorkerId === worker.id;
             const onHoliday = isHolidayFor(worker.id);
             const holidayReason = records[worker.id]?.holidayReason;
+            const isAbsent = status === 'absent';
 
             const dailyEarned = calculateDailyEarned({
               status,
@@ -502,7 +507,8 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
                     <div className="flex items-center flex-1 bg-slate-50 dark:bg-zinc-800 rounded-xl border border-slate-200 dark:border-zinc-700">
                       <button
                         onClick={() => adjustOT(worker.id, -0.5)}
-                        className="p-2.5 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-l-xl transition-colors active:scale-90"
+                        disabled={isAbsent}
+                        className="p-2.5 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-l-xl transition-colors active:scale-90 disabled:opacity-30 disabled:cursor-not-allowed"
                       >
                         <Minus className="w-4 h-4" />
                       </button>
@@ -510,13 +516,15 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
                         type="number"
                         step="0.5"
                         min="0"
+                        disabled={isAbsent}
                         value={ot}
                         onChange={(e) => setOvertime(worker.id, parseFloat(e.target.value) || 0)}
-                        className="w-full text-center bg-transparent py-2.5 text-slate-900 dark:text-white font-semibold outline-none text-sm"
+                        className="w-full text-center bg-transparent py-2.5 text-slate-900 dark:text-white font-semibold outline-none text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       />
                       <button
                         onClick={() => adjustOT(worker.id, 0.5)}
-                        className="p-2.5 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-r-xl transition-colors active:scale-90"
+                        disabled={isAbsent}
+                        className="p-2.5 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-r-xl transition-colors active:scale-90 disabled:opacity-30 disabled:cursor-not-allowed"
                       >
                         <Plus className="w-4 h-4" />
                       </button>
@@ -524,13 +532,15 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
                     <div className="flex gap-1">
                       <button
                         onClick={() => adjustOT(worker.id, 1)}
-                        className="px-2 py-2 text-xs font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors active:scale-90"
+                        disabled={isAbsent}
+                        className="px-2 py-2 text-xs font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors active:scale-90 disabled:opacity-30 disabled:cursor-not-allowed"
                       >
                         +1h
                       </button>
                       <button
                         onClick={() => adjustOT(worker.id, 2)}
-                        className="px-2 py-2 text-xs font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors active:scale-90"
+                        disabled={isAbsent}
+                        className="px-2 py-2 text-xs font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors active:scale-90 disabled:opacity-30 disabled:cursor-not-allowed"
                       >
                         +2h
                       </button>

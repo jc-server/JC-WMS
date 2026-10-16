@@ -23,6 +23,15 @@ export type BackupPayload = {
     sites: BackupDoc[];
     transactionsBySite: Record<string, BackupDoc[]>;
     roles: string[] | null;
+    /**
+     * Material Ledger collections. Optional for backwards compatibility —
+     * backups taken before the Material Ledger feature was added will not
+     * contain these keys. Restore treats `undefined` as an empty array.
+     */
+    suppliers?: BackupDoc[];
+    deliveries?: BackupDoc[];
+    commissions?: BackupDoc[];
+    supplierPayments?: BackupDoc[];
   };
 };
 
@@ -43,13 +52,25 @@ export function useBackup() {
     ): BackupDoc[] =>
       snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) }));
 
-    const [workersSnap, attendanceSnap, advancesSnap, sitesSnap] =
-      await Promise.all([
-        getDocs(collection(db, 'users', uid, 'workers')),
-        getDocs(collection(db, 'users', uid, 'attendance')),
-        getDocs(collection(db, 'users', uid, 'advances')),
-        getDocs(collection(db, 'users', uid, 'sites')),
-      ]);
+    const [
+      workersSnap,
+      attendanceSnap,
+      advancesSnap,
+      sitesSnap,
+      suppliersSnap,
+      deliveriesSnap,
+      commissionsSnap,
+      supplierPaymentsSnap,
+    ] = await Promise.all([
+      getDocs(collection(db, 'users', uid, 'workers')),
+      getDocs(collection(db, 'users', uid, 'attendance')),
+      getDocs(collection(db, 'users', uid, 'advances')),
+      getDocs(collection(db, 'users', uid, 'sites')),
+      getDocs(collection(db, 'users', uid, 'suppliers')),
+      getDocs(collection(db, 'users', uid, 'deliveries')),
+      getDocs(collection(db, 'users', uid, 'commissions')),
+      getDocs(collection(db, 'users', uid, 'supplierPayments')),
+    ]);
 
     const transactionsBySite: Record<string, BackupDoc[]> = {};
     for (const siteDoc of sitesSnap.docs) {
@@ -82,6 +103,10 @@ export function useBackup() {
         sites: toDocs(sitesSnap),
         transactionsBySite,
         roles,
+        suppliers: toDocs(suppliersSnap),
+        deliveries: toDocs(deliveriesSnap),
+        commissions: toDocs(commissionsSnap),
+        supplierPayments: toDocs(supplierPaymentsSnap),
       },
     };
   }, [user]);
@@ -176,6 +201,43 @@ export function useBackup() {
           ]);
         }
 
+        // ── Material Ledger (optional in older backups) ────────────
+
+        setProgress('Restoring suppliers…');
+        await writeChunks(
+          (payload.data.suppliers ?? []).map((s) => {
+            const { id, ...rest } = s;
+            return { ref: doc(db, 'users', uid, 'suppliers', id), data: rest };
+          })
+        );
+
+        setProgress('Restoring material deliveries…');
+        await writeChunks(
+          (payload.data.deliveries ?? []).map((d) => {
+            const { id, ...rest } = d;
+            return { ref: doc(db, 'users', uid, 'deliveries', id), data: rest };
+          })
+        );
+
+        setProgress('Restoring commissions…');
+        await writeChunks(
+          (payload.data.commissions ?? []).map((c) => {
+            const { id, ...rest } = c;
+            return { ref: doc(db, 'users', uid, 'commissions', id), data: rest };
+          })
+        );
+
+        setProgress('Restoring supplier payments…');
+        await writeChunks(
+          (payload.data.supplierPayments ?? []).map((p) => {
+            const { id, ...rest } = p;
+            return {
+              ref: doc(db, 'users', uid, 'supplierPayments', id),
+              data: rest,
+            };
+          })
+        );
+
         setProgress('Restore complete.');
       } catch (err) {
         setError((err as Error).message);
@@ -215,13 +277,38 @@ async function wipeAll(uid: string) {
     }
   }
 
-  // 2. Wipe top-level collections.
-  for (const name of ['workers', 'attendance', 'advances', 'sites']) {
+  // 2. Wipe every top-level collection under the user, including the new
+  //    Material Ledger collections. Keeping this as a single list means
+  //    future collections are one entry away from being covered.
+  const topLevel = [
+    'workers',
+    'attendance',
+    'advances',
+    'sites',
+    'suppliers',
+    'deliveries',
+    'commissions',
+    'supplierPayments',
+  ];
+
+  for (const name of topLevel) {
     const snap = await getDocs(collection(db, 'users', uid, name));
     for (let i = 0; i < snap.docs.length; i += 400) {
       const batch = writeBatch(db);
       snap.docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
       await batch.commit();
     }
+  }
+
+  // 3. Reset roles to defaults by removing the settings/roles document.
+  try {
+    const settingsSnap = await getDocs(collection(db, 'users', uid, 'settings'));
+    if (!settingsSnap.empty) {
+      const batch = writeBatch(db);
+      settingsSnap.docs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+  } catch {
+    /* settings optional — ignore */
   }
 }

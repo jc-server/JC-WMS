@@ -1,10 +1,10 @@
 import { useState, useMemo } from 'react';
 import {
   Plus, Search, Pencil, Trash2, Phone, Loader2, X, Users, Settings2,
-  UserCheck, UserX, RotateCcw,
+  UserX, RotateCcw,
 } from 'lucide-react';
 import { useWorkers, type Worker } from '@/hooks/useWorkers';
-import { useRoles } from '@/hooks/useRoles';
+import { useRoleCascade } from '@/hooks/useRoleCascade';
 import ManageRolesModal from '@/components/ManageRolesModal';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
@@ -21,7 +21,14 @@ export default function WorkerManagement({ onOpenProfile }: Props) {
     deleteWorker,
     reactivateWorker,
   } = useWorkers();
-  const { roles, addRole, updateRole, deleteRole } = useRoles();
+
+  // Cascade-aware role management: renames/deletes propagate to all
+  // workers currently assigned the old role.
+  const { roles, addRole, updateRole, deleteRole } = useRoleCascade(
+    workers,
+    updateWorker
+  );
+
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('active');
@@ -51,32 +58,6 @@ export default function WorkerManagement({ onOpenProfile }: Props) {
 
   const activeCount = workers.filter((w) => w.active).length;
   const inactiveCount = workers.length - activeCount;
-
-  /**
-   * Cascade role rename: update the role list AND all workers using it.
-   * Prevents orphaned / dangling role strings.
-   */
-  const handleUpdateRole = async (oldName: string, newName: string) => {
-    const trimmed = newName.trim();
-    if (!trimmed || trimmed === oldName) return;
-    await updateRole(oldName, trimmed);
-    const affected = workers.filter((w) => w.role === oldName);
-    await Promise.all(
-      affected.map((w) => updateWorker(w.id, { role: trimmed }))
-    );
-  };
-
-  /**
-   * Cascade role delete: reassign workers using the deleted role to a fallback.
-   */
-  const handleDeleteRole = async (role: string) => {
-    await deleteRole(role);
-    const fallback = roles.filter((r) => r !== role)[0] ?? 'Worker';
-    const affected = workers.filter((w) => w.role === role);
-    await Promise.all(
-      affected.map((w) => updateWorker(w.id, { role: fallback }))
-    );
-  };
 
   const handleEdit = (worker: Worker) => {
     setEditing(worker);
@@ -283,8 +264,8 @@ export default function WorkerManagement({ onOpenProfile }: Props) {
           roles={roles}
           workerRoles={workers.filter((w) => w.active).map((w) => w.role)}
           onAdd={addRole}
-          onUpdate={handleUpdateRole}
-          onDelete={handleDeleteRole}
+          onUpdate={updateRole}
+          onDelete={deleteRole}
           onClose={() => setShowRolesModal(false)}
         />
       )}

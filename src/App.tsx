@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Users, CalendarCheck, Wallet, LogOut, Loader2, Sun, Moon, Building2,
-  Activity,
+  Activity, Package,
 } from 'lucide-react';
 import { Analytics } from '@vercel/analytics/react';
 import { useAuth } from '@/context/AuthContext';
@@ -14,6 +14,7 @@ import WorkerManagement from '@/components/WorkerManagement';
 import AttendanceMatrix from '@/components/AttendanceMatrix';
 import WageSummaryView from '@/components/WageSummary';
 import SiteLedger from '@/components/SiteLedger';
+import MaterialLedger from '@/components/MaterialLedger';
 import MetricsRibbon from '@/components/MetricsRibbon';
 import WorkerProfile from '@/components/WorkerProfile';
 import InstallPwaButton from '@/components/InstallPwaButton';
@@ -21,7 +22,7 @@ import NetworkStatus from '@/components/NetworkStatus';
 import SystemHealth from '@/components/SystemHealth';
 import { todayStr } from '@/utils/date';
 
-type Tab = 'attendance' | 'workers' | 'wages' | 'ledger' | 'system';
+type Tab = 'attendance' | 'workers' | 'wages' | 'ledger' | 'materials' | 'system';
 
 export default function App() {
   const { user, loading, signOut } = useAuth();
@@ -48,7 +49,6 @@ export default function App() {
   const { advances } = useAdvances();
   const [profileWorker, setProfileWorker] = useState<Worker | null>(null);
 
-  // Live metrics for today (global).
   useEffect(() => {
     const activeWorkers = workers.filter((w) => w.active);
     let present = 0,
@@ -60,7 +60,7 @@ export default function App() {
     activeWorkers.forEach((w) => {
       const r = todayAtt[w.id];
       const status = r?.status ?? 'absent';
-      const ot = r?.overtimeHours ?? 0;
+      const ot = status === 'absent' ? 0 : r?.overtimeHours ?? 0;
 
       if (status === 'present') {
         present++;
@@ -72,7 +72,6 @@ export default function App() {
         dailyCost += ot * w.overtimeHourlyRate;
       } else {
         absent++;
-        dailyCost += ot * w.overtimeHourlyRate;
       }
       otHours += ot;
     });
@@ -111,6 +110,7 @@ export default function App() {
     { id: 'workers', label: 'Workers', icon: Users },
     { id: 'wages', label: 'Wages', icon: Wallet },
     { id: 'ledger', label: 'Site Ledger', icon: Building2 },
+    { id: 'materials', label: 'Material Ledger', icon: Package },
     { id: 'system', label: 'System Health', icon: Activity },
   ];
 
@@ -192,6 +192,7 @@ export default function App() {
           <WageSummaryView workers={workers} onOpenProfile={setProfileWorker} />
         )}
         {tab === 'ledger' && <SiteLedger />}
+        {tab === 'materials' && <MaterialLedger />}
         {tab === 'system' && <SystemHealth />}
       </main>
 
@@ -210,6 +211,7 @@ export default function App() {
       {profileWorker && (
         <WorkerProfile
           worker={profileWorker}
+          workers={workers}
           onClose={() => setProfileWorker(null)}
           onUpdate={updateWorker}
           onDelete={deleteWorker}

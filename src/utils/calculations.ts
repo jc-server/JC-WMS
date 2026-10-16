@@ -1,17 +1,3 @@
-/**
- * Unified wage and financial calculations.
- *
- * ALL wage math MUST go through these functions so that AttendanceMatrix,
- * WageSummary, WorkerProfile and useWageCalculator agree with each other.
- *
- * Rules:
- *   - Present  : dailyWage
- *   - Half     : dailyWage * 0.5
- *   - Absent   : 0
- *   - Holiday  : 0 base, but OT hours are still paid.
- *   - OT       : overtimeHours * overtimeHourlyRate (always additive)
- */
-
 import type { AttendanceStatus } from '@/hooks/useAttendance';
 
 export function roundCurrency(num: number): number {
@@ -41,7 +27,11 @@ export function calculateDailyEarned({
   else if (status === 'half') base = wage * 0.5;
   // absent / holiday => base = 0
 
-  return roundCurrency(base + otH * otR);
+  // OT is only paid when the worker was on-site. An absent worker cannot
+  // do overtime. Holidays still allow OT pay (called in for emergency work).
+  const otPay = status === 'absent' ? 0 : otH * otR;
+
+  return roundCurrency(base + otPay);
 }
 
 export type WageCounts = {
@@ -49,6 +39,10 @@ export type WageCounts = {
   half: number;
   absent: number;
   holiday: number;
+  /**
+   * IMPORTANT: `otHours` MUST already exclude any hours logged on absent
+   * days — callers are responsible for filtering them out.
+   */
   otHours: number;
 };
 

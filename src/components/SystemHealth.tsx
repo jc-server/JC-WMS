@@ -1,9 +1,9 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   Activity, Database, HardDriveDownload, HardDriveUpload, RefreshCw,
   CheckCircle2, AlertTriangle, Users, CalendarCheck, Wallet, Building2,
-  Receipt, Loader2, ShieldCheck, Wifi, WifiOff, Trash2, FileJson,
-  TrendingUp, Clock,
+  Receipt, Loader2, ShieldCheck, Wifi, WifiOff, Trash2,
+  Clock, Package,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSystemHealth, formatBytes } from '@/hooks/useSystemHealth';
@@ -25,8 +25,9 @@ export default function SystemHealth() {
   const [restoreMode, setRestoreMode] = useState<'merge' | 'replace'>('merge');
   const [toast, setToast] = useState<{ msg: string; type: 'saved' | 'error' } | null>(null);
 
-  // Live online/offline listener
-  useState(() => {
+  // Live online/offline listener — properly registered via useEffect
+  // so its cleanup runs on unmount.
+  useEffect(() => {
     const on = () => setIsOnline(true);
     const off = () => setIsOnline(false);
     window.addEventListener('online', on);
@@ -35,7 +36,7 @@ export default function SystemHealth() {
       window.removeEventListener('online', on);
       window.removeEventListener('offline', off);
     };
-  });
+  }, []);
 
   const showToast = (msg: string, type: 'saved' | 'error') => {
     setToast({ msg, type });
@@ -261,6 +262,50 @@ export default function SystemHealth() {
         />
       </div>
 
+      {/* Material Ledger counts */}
+      {counts?.materials && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+          <MetricCard
+            icon={Building2}
+            label="Suppliers"
+            value={counts.materials.suppliers}
+            color="text-red-600 dark:text-red-400"
+            bg="bg-red-50 dark:bg-red-950/30"
+          />
+          <MetricCard
+            icon={Package}
+            label="Deliveries"
+            value={counts.materials.deliveries}
+            sub={
+              counts.materials.trucks > 0
+                ? `${counts.materials.trucks} truck${counts.materials.trucks === 1 ? '' : 's'}`
+                : ''
+            }
+            color="text-cyan-600 dark:text-cyan-400"
+            bg="bg-cyan-50 dark:bg-cyan-950/30"
+          />
+          <MetricCard
+            icon={Receipt}
+            label="Commissions"
+            value={counts.materials.commissions}
+            sub={
+              counts.materials.pendingCommissions > 0
+                ? `${counts.materials.pendingCommissions} pending`
+                : ''
+            }
+            color="text-fuchsia-600 dark:text-fuchsia-400"
+            bg="bg-fuchsia-50 dark:bg-fuchsia-950/30"
+          />
+          <MetricCard
+            icon={Wallet}
+            label="Supplier Payments"
+            value={counts.materials.supplierPayments}
+            color="text-teal-600 dark:text-teal-400"
+            bg="bg-teal-50 dark:bg-teal-950/30"
+          />
+        </div>
+      )}
+
       {/* Info strip */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
         <InfoTile
@@ -288,8 +333,9 @@ export default function SystemHealth() {
         </div>
         <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
           Download a complete JSON snapshot of all your workers, attendance, advances, sites,
-          transactions and role settings. Keep it safe — you can restore it at any time
-          (after an app update, device reset, or to move to a new account).
+          transactions, material ledger (suppliers, deliveries, commissions, payments) and role
+          settings. Keep it safe — you can restore it at any time (after an app update, device
+          reset, or to move to a new account).
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -341,8 +387,8 @@ export default function SystemHealth() {
           <h3 className="font-bold text-red-700 dark:text-red-300 text-sm">Danger Zone</h3>
         </div>
         <p className="text-xs text-red-600/80 dark:text-red-400/80 mb-3">
-          Permanently delete ALL data (workers, attendance, advances, sites, transactions).
-          This action cannot be undone. Take a backup first.
+          Permanently delete ALL data (workers, attendance, advances, sites, transactions,
+          material ledger and role settings). This action cannot be undone. Take a backup first.
         </p>
         <button
           onClick={() => setShowClearConfirm(true)}
@@ -357,11 +403,29 @@ export default function SystemHealth() {
       <ConfirmDialog
         open={pendingRestore !== null}
         title="Restore Backup?"
-        message={`This will restore ${pendingRestore?.data.workers.length ?? 0} workers, ${
-          pendingRestore?.data.attendance.length ?? 0
-        } attendance records, ${pendingRestore?.data.advances.length ?? 0} advances, ${
-          pendingRestore?.data.sites.length ?? 0
-        } sites and their transactions.`}
+        message={(() => {
+          const d = pendingRestore?.data;
+          if (!d) return '';
+          const parts = [
+            `${d.workers.length} worker${d.workers.length === 1 ? '' : 's'}`,
+            `${d.attendance.length} attendance record${d.attendance.length === 1 ? '' : 's'}`,
+            `${d.advances.length} advance${d.advances.length === 1 ? '' : 's'}`,
+            `${d.sites.length} site${d.sites.length === 1 ? '' : 's'}`,
+          ];
+          const suppliers = d.suppliers ?? [];
+          const deliveries = d.deliveries ?? [];
+          const commissions = d.commissions ?? [];
+          const payments = d.supplierPayments ?? [];
+          if (suppliers.length > 0)
+            parts.push(`${suppliers.length} supplier${suppliers.length === 1 ? '' : 's'}`);
+          if (deliveries.length > 0)
+            parts.push(`${deliveries.length} material deliver${deliveries.length === 1 ? 'y' : 'ies'}`);
+          if (commissions.length > 0)
+            parts.push(`${commissions.length} commission${commissions.length === 1 ? '' : 's'}`);
+          if (payments.length > 0)
+            parts.push(`${payments.length} supplier payment${payments.length === 1 ? '' : 's'}`);
+          return `This will restore ${parts.join(', ')}.`;
+        })()}
         confirmLabel="Restore Now"
         cancelLabel="Cancel"
         variant="warning"
@@ -403,7 +467,7 @@ export default function SystemHealth() {
       <ConfirmDialog
         open={showClearConfirm}
         title="Clear All Data?"
-        message="This will permanently delete every worker, attendance record, advance, site, and transaction. This action CANNOT be undone. Make a backup first."
+        message="This will permanently delete every worker, attendance record, advance, site, transaction, supplier, delivery, commission, supplier payment and role setting. This action CANNOT be undone. Make a backup first."
         confirmLabel="Yes, Delete Everything"
         cancelLabel="Cancel"
         variant="danger"
@@ -425,6 +489,10 @@ export default function SystemHealth() {
                   sites: [],
                   transactionsBySite: {},
                   roles: null,
+                  suppliers: [],
+                  deliveries: [],
+                  commissions: [],
+                  supplierPayments: [],
                 },
               },
               'replace'

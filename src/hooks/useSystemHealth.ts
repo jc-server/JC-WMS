@@ -9,6 +9,14 @@ export type SystemCounts = {
   advances: number;
   sites: number;
   transactions: number;
+  materials: {
+    suppliers: number;
+    deliveries: number;
+    trucks: number;
+    commissions: number;
+    pendingCommissions: number;
+    supplierPayments: number;
+  };
 };
 
 export type SystemHealthState = {
@@ -39,13 +47,25 @@ export function useSystemHealth(): SystemHealthState {
     setLoading(true);
     setError(null);
     try {
-      const [workersSnap, attendanceSnap, advancesSnap, sitesSnap] =
-        await Promise.all([
-          getDocs(collection(db, 'users', user.uid, 'workers')),
-          getDocs(collection(db, 'users', user.uid, 'attendance')),
-          getDocs(collection(db, 'users', user.uid, 'advances')),
-          getDocs(collection(db, 'users', user.uid, 'sites')),
-        ]);
+      const [
+        workersSnap,
+        attendanceSnap,
+        advancesSnap,
+        sitesSnap,
+        suppliersSnap,
+        deliveriesSnap,
+        commissionsSnap,
+        supplierPaymentsSnap,
+      ] = await Promise.all([
+        getDocs(collection(db, 'users', user.uid, 'workers')),
+        getDocs(collection(db, 'users', user.uid, 'attendance')),
+        getDocs(collection(db, 'users', user.uid, 'advances')),
+        getDocs(collection(db, 'users', user.uid, 'sites')),
+        getDocs(collection(db, 'users', user.uid, 'suppliers')),
+        getDocs(collection(db, 'users', user.uid, 'deliveries')),
+        getDocs(collection(db, 'users', user.uid, 'commissions')),
+        getDocs(collection(db, 'users', user.uid, 'supplierPayments')),
+      ]);
 
       let transactions = 0;
       let bytes = 0;
@@ -62,6 +82,10 @@ export function useSystemHealth(): SystemHealthState {
       measure(attendanceSnap);
       measure(advancesSnap);
       measure(sitesSnap);
+      measure(suppliersSnap);
+      measure(deliveriesSnap);
+      measure(commissionsSnap);
+      measure(supplierPaymentsSnap);
 
       for (const siteDoc of sitesSnap.docs) {
         const txSnap = await getDocs(collection(siteDoc.ref, 'transactions'));
@@ -77,6 +101,19 @@ export function useSystemHealth(): SystemHealthState {
         else activeWorkers++;
       });
 
+      // Material Ledger aggregates.
+      let trucks = 0;
+      deliveriesSnap.forEach((d) => {
+        const data = d.data() as { truckCount?: number };
+        trucks += Number(data.truckCount ?? 0);
+      });
+
+      let pendingCommissions = 0;
+      commissionsSnap.forEach((d) => {
+        const data = d.data() as { status?: string };
+        if (data.status !== 'received') pendingCommissions++;
+      });
+
       setCounts({
         workers: {
           total: workersSnap.size,
@@ -87,6 +124,14 @@ export function useSystemHealth(): SystemHealthState {
         advances: advancesSnap.size,
         sites: sitesSnap.size,
         transactions,
+        materials: {
+          suppliers: suppliersSnap.size,
+          deliveries: deliveriesSnap.size,
+          trucks,
+          commissions: commissionsSnap.size,
+          pendingCommissions,
+          supplierPayments: supplierPaymentsSnap.size,
+        },
       });
       setStorageBytes(bytes);
       setLastChecked(Date.now());

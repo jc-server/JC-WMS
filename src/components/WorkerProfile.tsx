@@ -9,7 +9,7 @@ import type { Worker } from '@/hooks/useWorkers';
 import { useWorkerAttendance, type DayRecord } from '@/hooks/useWorkerAttendance';
 import { useWorkerAdvances } from '@/hooks/useWorkerAdvances';
 import type { AttendanceStatus } from '@/hooks/useAttendance';
-import { useRoles } from '@/hooks/useRoles';
+import { useRoleCascade } from '@/hooks/useRoleCascade';
 import ManageRolesModal from '@/components/ManageRolesModal';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { rowsToCsv, downloadCsv } from '@/utils/csv';
@@ -34,6 +34,12 @@ const STATUS_BADGE: Record<
 
 type Props = {
   worker: Worker;
+  /**
+   * The full list of workers. Required so role renames/deletes cascade to
+   * every worker assigned that role — this keeps the workers collection
+   * consistent with the roles settings document.
+   */
+  workers: Worker[];
   onClose: () => void;
   onUpdate: (
     id: string,
@@ -62,6 +68,7 @@ function dateStr(year: number, month: number, day: number) {
 
 export default function WorkerProfile({
   worker,
+  workers,
   onClose,
   onUpdate,
   onDelete,
@@ -76,7 +83,12 @@ export default function WorkerProfile({
   const [confirmHardDelete, setConfirmHardDelete] = useState(false);
   const [showRolesModal, setShowRolesModal] = useState(false);
 
-  const { roles, addRole, updateRole, deleteRole } = useRoles();
+  // Cascade-aware role management — renames/deletes propagate to every
+  // worker currently assigned the old role.
+  const { roles, addRole, updateRole, deleteRole } = useRoleCascade(
+    workers,
+    onUpdate
+  );
 
   const [year, month] = monthStr.split('-').map(Number);
   const { records, loading: attLoading, saveDay, deleteDay } = useWorkerAttendance(
@@ -154,7 +166,8 @@ export default function WorkerProfile({
       else if (r.status === 'half') half++;
       else if (r.status === 'holiday') holiday++;
       else absent++;
-      otHours += r.overtimeHours;
+      // OT is only paid on days the worker was on-site.
+      if (r.status !== 'absent') otHours += r.overtimeHours;
       dailyPaid += r.amountPaid || 0;
       attendanceAdvances += r.advanceAmount || 0;
     });
@@ -768,7 +781,7 @@ export default function WorkerProfile({
       {showRolesModal && (
         <ManageRolesModal
           roles={roles}
-          workerRoles={[]}
+          workerRoles={workers.filter((w) => w.active).map((w) => w.role)}
           onAdd={addRole}
           onUpdate={updateRole}
           onDelete={deleteRole}
@@ -869,12 +882,14 @@ function DayEditPopup({
     month: 'short',
   });
   const isHoliday = record?.isHoliday === true;
+  const isAbsent = status === 'absent';
 
   const handleSave = async () => {
     setSaving(true);
+    // An absent worker cannot log OT — coerce to 0 before persisting.
     await onSave(
       status,
-      ot,
+      isAbsent ? 0 : ot,
       parseFloat(amountPaid) || 0,
       parseFloat(advanceAmount) || 0,
       remark.trim()
@@ -917,7 +932,11 @@ function DayEditPopup({
             return (
               <button
                 key={s}
-                onClick={() => setStatus(s)}
+                onClick={() => {
+                  setStatus(s);
+                  // Zero OT when marking absent.
+                  if (s === 'absent') setOt(0);
+                }}
                 className={`flex-1 py-3 rounded-xl border-2 font-semibold text-xs transition-all active:scale-95 flex flex-col items-center gap-1 ${
                   isActive
                     ? `${cfg.bg} ${cfg.text} ${cfg.border}`
@@ -940,7 +959,8 @@ function DayEditPopup({
           <div className="flex items-center gap-2">
             <button
               onClick={() => setOt(Math.max(0, ot - 0.5))}
-              className="p-2.5 bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300 rounded-lg transition-colors active:scale-90"
+              disabled={isAbsent}
+              className="p-2.5 bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300 rounded-lg transition-colors active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -948,13 +968,15 @@ function DayEditPopup({
               type="number"
               step="0.5"
               min="0"
+              disabled={isAbsent}
               value={ot}
               onChange={(e) => setOt(parseFloat(e.target.value) || 0)}
-              className="flex-1 text-center py-2 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-lg border border-slate-200 dark:border-zinc-700 outline-none font-semibold text-sm"
+              className="flex-1 text-center py-2 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-lg border border-slate-200 dark:border-zinc-700 outline-none font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <button
               onClick={() => setOt(ot + 0.5)}
-              className="p-2.5 bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300 rounded-lg transition-colors active:scale-90"
+              disabled={isAbsent}
+              className="p-2.5 bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300 rounded-lg transition-colors active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
