@@ -265,12 +265,6 @@ export default function SystemHealth() {
             {storageComputedAt ? `measured ${relativeTime(storageComputedAt)}` : ''}
           </p>
         </div>
-        <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-2 leading-relaxed">
-          Estimated from the JSON size of every document in your account.
-          Real Firestore usage includes index overhead, so the actual figure in
-          Firebase Console → Firestore → Usage may be slightly higher. Auto-refreshes
-          hourly; click Refresh to recompute now.
-        </p>
       </div>
 
       {/* Total documents */}
