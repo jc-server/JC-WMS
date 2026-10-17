@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
+import { roundCurrency } from '@/utils/calculations';
 
 export type SystemCounts = {
   workers: { total: number; active: number; inactive: number };
@@ -17,6 +18,12 @@ export type SystemCounts = {
     commissions: number;
     pendingCommissions: number;
     supplierPayments: number;
+  };
+  contractors: {
+    total: number;
+    active: number;
+    payments: number;
+    totalPaid: number;
   };
 };
 
@@ -83,6 +90,8 @@ export function useSystemHealth(): SystemHealthState {
         deliveriesSnap,
         commissionsSnap,
         supplierPaymentsSnap,
+        contractorsSnap,
+        contractorPaymentsSnap,
       ] = await Promise.all([
         getDocs(collection(db, 'users', uid, 'workers')),
         getDocs(collection(db, 'users', uid, 'attendance')),
@@ -92,6 +101,8 @@ export function useSystemHealth(): SystemHealthState {
         getDocs(collection(db, 'users', uid, 'deliveries')),
         getDocs(collection(db, 'users', uid, 'commissions')),
         getDocs(collection(db, 'users', uid, 'supplierPayments')),
+        getDocs(collection(db, 'users', uid, 'contractors')),
+        getDocs(collection(db, 'users', uid, 'contractorPayments')),
       ]);
 
       let bytes = 0;
@@ -112,6 +123,8 @@ export function useSystemHealth(): SystemHealthState {
       measure(deliveriesSnap);
       measure(commissionsSnap);
       measure(supplierPaymentsSnap);
+      measure(contractorsSnap);
+      measure(contractorPaymentsSnap);
 
       // Count transactions under each site and measure their bytes too.
       let transactions = 0;
@@ -143,6 +156,19 @@ export function useSystemHealth(): SystemHealthState {
         if (data.status !== 'received') pendingCommissions++;
       });
 
+      // Contractor derived metrics.
+      let activeContractors = 0;
+      contractorsSnap.forEach((d) => {
+        const c = d.data() as { active?: boolean };
+        if (c.active !== false) activeContractors++;
+      });
+
+      let totalPaidToContractors = 0;
+      contractorPaymentsSnap.forEach((d) => {
+        const p = d.data() as { amount?: number };
+        totalPaidToContractors += Number(p.amount ?? 0);
+      });
+
       const nextCounts: SystemCounts = {
         workers: {
           total: workersSnap.size,
@@ -162,7 +188,9 @@ export function useSystemHealth(): SystemHealthState {
           suppliersSnap.size +
           deliveriesSnap.size +
           commissionsSnap.size +
-          supplierPaymentsSnap.size,
+          supplierPaymentsSnap.size +
+          contractorsSnap.size +
+          contractorPaymentsSnap.size,
         materials: {
           suppliers: suppliersSnap.size,
           deliveries: deliveriesSnap.size,
@@ -170,6 +198,12 @@ export function useSystemHealth(): SystemHealthState {
           commissions: commissionsSnap.size,
           pendingCommissions,
           supplierPayments: supplierPaymentsSnap.size,
+        },
+        contractors: {
+          total: contractorsSnap.size,
+          active: activeContractors,
+          payments: contractorPaymentsSnap.size,
+          totalPaid: roundCurrency(totalPaidToContractors),
         },
       };
 

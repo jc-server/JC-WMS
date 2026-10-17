@@ -1,7 +1,7 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import {
   Users, CalendarCheck, Wallet, LogOut, Loader2, Sun, Moon, Building2,
-  Activity, Package,
+  Activity, Package, HandCoins,
 } from 'lucide-react';
 import { Analytics } from '@vercel/analytics/react';
 import { useAuth } from '@/context/AuthContext';
@@ -22,9 +22,17 @@ import { todayStr } from '@/utils/date';
 const WageSummaryView = lazy(() => import('@/components/WageSummary'));
 const SiteLedger = lazy(() => import('@/components/SiteLedger'));
 const MaterialLedger = lazy(() => import('@/components/MaterialLedger'));
+const ContractorPayments = lazy(() => import('@/components/ContractorPayments'));
 const SystemHealth = lazy(() => import('@/components/SystemHealth'));
 
-type Tab = 'attendance' | 'workers' | 'wages' | 'ledger' | 'materials' | 'system';
+type Tab =
+  | 'attendance'
+  | 'workers'
+  | 'wages'
+  | 'ledger'
+  | 'materials'
+  | 'contractors'
+  | 'system';
 
 function TabLoader() {
   return (
@@ -121,6 +129,7 @@ export default function App() {
     { id: 'wages', label: 'Wages', icon: Wallet },
     { id: 'ledger', label: 'Site Ledger', icon: Building2 },
     { id: 'materials', label: 'Material Ledger', icon: Package },
+    { id: 'contractors', label: 'Contractors', icon: HandCoins },
     { id: 'system', label: 'System Health', icon: Activity },
   ];
 
@@ -204,6 +213,7 @@ export default function App() {
           )}
           {tab === 'ledger' && <SiteLedger />}
           {tab === 'materials' && <MaterialLedger />}
+          {tab === 'contractors' && <ContractorPayments />}
           {tab === 'system' && <SystemHealth />}
         </Suspense>
       </main>

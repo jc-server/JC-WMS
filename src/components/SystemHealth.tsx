@@ -3,7 +3,7 @@ import {
   Activity, Database, HardDriveDownload, HardDriveUpload, RefreshCw,
   CheckCircle2, AlertTriangle, Users, CalendarCheck, Wallet, Building2,
   Receipt, Loader2, ShieldCheck, Wifi, WifiOff, Trash2,
-  Clock, Package, FileStack, HardDrive,
+  Clock, Package, FileStack, HardDrive, HandCoins,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSystemHealth, formatBytes } from '@/hooks/useSystemHealth';
@@ -280,7 +280,7 @@ export default function SystemHealth() {
         </div>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
           Every worker, attendance record, advance, site, transaction, supplier,
-          delivery, commission, payment and settings document across your account.
+          delivery, commission, payment, contractor and settings document across your account.
         </p>
       </div>
 
@@ -372,6 +372,38 @@ export default function SystemHealth() {
         </div>
       )}
 
+      {/* Contractor counts */}
+      {counts?.contractors && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
+          <MetricCard
+            icon={Building2}
+            label="Contractors"
+            value={counts.contractors.total}
+            sub={
+              counts.contractors.total > 0
+                ? `${counts.contractors.active} active`
+                : ''
+            }
+            color="text-amber-600 dark:text-amber-400"
+            bg="bg-amber-50 dark:bg-amber-950/30"
+          />
+          <MetricCard
+            icon={HandCoins}
+            label="Contractor Payments"
+            value={counts.contractors.payments}
+            color="text-emerald-600 dark:text-emerald-400"
+            bg="bg-emerald-50 dark:bg-emerald-950/30"
+          />
+          <MetricCard
+            icon={Wallet}
+            label="Paid to Contractors"
+            value={`₹${counts.contractors.totalPaid.toFixed(0)}`}
+            color="text-sky-600 dark:text-sky-400"
+            bg="bg-sky-50 dark:bg-sky-950/30"
+          />
+        </div>
+      )}
+
       {/* Info strip */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
         <InfoTile
@@ -399,9 +431,9 @@ export default function SystemHealth() {
         </div>
         <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
           Download a complete JSON snapshot of all your workers, attendance, advances, sites,
-          transactions, material ledger (suppliers, deliveries, commissions, payments) and role
-          settings. Keep it safe — you can restore it at any time (after an app update, device
-          reset, or to move to a new account).
+          transactions, material ledger (suppliers, deliveries, commissions, payments),
+          contractor payments and role settings. Keep it safe — you can restore it at any time
+          (after an app update, device reset, or to move to a new account).
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -454,7 +486,8 @@ export default function SystemHealth() {
         </div>
         <p className="text-xs text-red-600/80 dark:text-red-400/80 mb-3">
           Permanently delete ALL data (workers, attendance, advances, sites, transactions,
-          material ledger and role settings). This action cannot be undone. Take a backup first.
+          material ledger, contractor payments and role settings). This action cannot be undone.
+          Take a backup first.
         </p>
         <button
           onClick={() => setShowClearConfirm(true)}
@@ -482,6 +515,8 @@ export default function SystemHealth() {
           const deliveries = d.deliveries ?? [];
           const commissions = d.commissions ?? [];
           const payments = d.supplierPayments ?? [];
+          const contractors = d.contractors ?? [];
+          const contractorPayments = d.contractorPayments ?? [];
           if (suppliers.length > 0)
             parts.push(`${suppliers.length} supplier${suppliers.length === 1 ? '' : 's'}`);
           if (deliveries.length > 0)
@@ -490,6 +525,12 @@ export default function SystemHealth() {
             parts.push(`${commissions.length} commission${commissions.length === 1 ? '' : 's'}`);
           if (payments.length > 0)
             parts.push(`${payments.length} supplier payment${payments.length === 1 ? '' : 's'}`);
+          if (contractors.length > 0)
+            parts.push(`${contractors.length} contractor${contractors.length === 1 ? '' : 's'}`);
+          if (contractorPayments.length > 0)
+            parts.push(
+              `${contractorPayments.length} contractor payment${contractorPayments.length === 1 ? '' : 's'}`
+            );
           return `This will restore ${parts.join(', ')}.`;
         })()}
         confirmLabel="Restore Now"
@@ -533,7 +574,7 @@ export default function SystemHealth() {
       <ConfirmDialog
         open={showClearConfirm}
         title="Clear All Data?"
-        message="This will permanently delete every worker, attendance record, advance, site, transaction, supplier, delivery, commission, supplier payment and role setting. This action CANNOT be undone. Make a backup first."
+        message="This will permanently delete every worker, attendance record, advance, site, transaction, supplier, delivery, commission, supplier payment, contractor, contractor payment and role setting. This action CANNOT be undone. Make a backup first."
         confirmLabel="Yes, Delete Everything"
         cancelLabel="Cancel"
         variant="danger"
@@ -555,7 +596,7 @@ function MetricCard({
 }: {
   icon: typeof Users;
   label: string;
-  value: number;
+  value: number | string;
   sub?: string;
   color: string;
   bg: string;

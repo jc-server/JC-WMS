@@ -27,6 +27,8 @@ export type BackupPayload = {
     deliveries?: BackupDoc[];
     commissions?: BackupDoc[];
     supplierPayments?: BackupDoc[];
+    contractors?: BackupDoc[];
+    contractorPayments?: BackupDoc[];
   };
 };
 
@@ -56,6 +58,8 @@ export function useBackup() {
       deliveriesSnap,
       commissionsSnap,
       supplierPaymentsSnap,
+      contractorsSnap,
+      contractorPaymentsSnap,
     ] = await Promise.all([
       getDocs(collection(db, 'users', uid, 'workers')),
       getDocs(collection(db, 'users', uid, 'attendance')),
@@ -65,6 +69,8 @@ export function useBackup() {
       getDocs(collection(db, 'users', uid, 'deliveries')),
       getDocs(collection(db, 'users', uid, 'commissions')),
       getDocs(collection(db, 'users', uid, 'supplierPayments')),
+      getDocs(collection(db, 'users', uid, 'contractors')),
+      getDocs(collection(db, 'users', uid, 'contractorPayments')),
     ]);
 
     const transactionsBySite: Record<string, BackupDoc[]> = {};
@@ -102,6 +108,8 @@ export function useBackup() {
         deliveries: toDocs(deliveriesSnap),
         commissions: toDocs(commissionsSnap),
         supplierPayments: toDocs(supplierPaymentsSnap),
+        contractors: toDocs(contractorsSnap),
+        contractorPayments: toDocs(contractorPaymentsSnap),
       },
     };
   }, [user]);
@@ -231,6 +239,25 @@ export function useBackup() {
           })
         );
 
+        setProgress('Restoring contractors…');
+        await writeChunks(
+          (payload.data.contractors ?? []).map((c) => {
+            const { id, ...rest } = c;
+            return { ref: doc(db, 'users', uid, 'contractors', id), data: rest };
+          })
+        );
+
+        setProgress('Restoring contractor payments…');
+        await writeChunks(
+          (payload.data.contractorPayments ?? []).map((p) => {
+            const { id, ...rest } = p;
+            return {
+              ref: doc(db, 'users', uid, 'contractorPayments', id),
+              data: rest,
+            };
+          })
+        );
+
         setProgress('Restore complete.');
       } catch (err) {
         setError((err as Error).message);
@@ -245,7 +272,7 @@ export function useBackup() {
   /**
    * Wipes ALL of the current user's data — workers, attendance, advances,
    * sites + their transactions, suppliers, deliveries, commissions,
-   * supplierPayments and role settings.
+   * supplierPayments, contractors, contractorPayments and role settings.
    *
    * Exposed separately so the "Clear All Data" button doesn't have to fake
    * an empty restore payload.
@@ -304,6 +331,8 @@ async function wipeAll(uid: string) {
     'deliveries',
     'commissions',
     'supplierPayments',
+    'contractors',
+    'contractorPayments',
   ];
 
   for (const name of topLevel) {
