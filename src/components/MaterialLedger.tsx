@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Truck, Building2, Package, IndianRupee, Plus, X, Search, Pencil,
   Trash2, Loader2, Download, TrendingDown, Wallet, Phone,
@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 
 import ConfirmDialog from '@/components/ConfirmDialog';
+import { CustomSelect } from '@/components/CustomSelect';
 import { useSites } from '@/hooks/useSites';
 import {
   useSuppliers,
@@ -350,79 +351,6 @@ function Field({
   );
 }
 
-// Custom Dropdown Component for beautiful UI
-function CustomSelect({
-  value, onChange, options, placeholder, renderValue, renderOption
-}: {
-  value: string; 
-  onChange: (val: string) => void; 
-  options: string[]; 
-  placeholder?: string;
-  renderValue?: (val: string) => string;
-  renderOption?: (opt: string) => string;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const displayVal = value ? (renderValue ? renderValue(value) : value) : (placeholder || 'Select...');
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className={`${inputCls} flex items-center justify-between text-left`}
-      >
-        <span className={`truncate ${!value ? 'text-slate-500 dark:text-slate-400' : ''}`}>
-          {displayVal}
-        </span>
-        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-      </button>
-      
-      {isOpen && (
-        <div className="absolute z-50 w-full mt-1 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl shadow-xl max-h-60 overflow-y-auto py-1">
-          {options.length === 0 && (
-            <div className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400 text-center">
-              No options available
-            </div>
-          )}
-          {options.map((opt) => {
-            const displayOpt = renderOption ? renderOption(opt) : opt;
-            return (
-              <button
-                key={opt}
-                type="button"
-                onClick={() => {
-                  onChange(opt);
-                  setIsOpen(false);
-                }}
-                className={`w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center justify-between ${
-                  value === opt
-                    ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 font-semibold'
-                    : 'text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-700/50'
-                }`}
-              >
-                <span className="truncate">{displayOpt}</span>
-                {value === opt && <Check className="w-4 h-4 shrink-0" />}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ------------------------------------------------------------------ */
 /* Suppliers                                                           */
 /* ------------------------------------------------------------------ */
@@ -500,25 +428,25 @@ function SuppliersView({
             className="w-full pl-11 pr-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all text-slate-900 dark:text-white"
           />
         </div>
-        <select
+        <CustomSelect
           value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value as 'all' | SupplierType)}
-          className="px-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none text-slate-900 dark:text-white font-medium text-sm"
-        >
-          <option value="all">All Types</option>
-          {SUPPLIER_TYPES.map((t) => (
-            <option key={t} value={t}>{t}</option>
-          ))}
-        </select>
-        <select
+          onChange={(val) => setTypeFilter(val as 'all' | SupplierType)}
+          options={[
+            { value: 'all', label: 'All Types' },
+            ...SUPPLIER_TYPES.map((t) => ({ value: t, label: t })),
+          ]}
+          className="min-w-[150px]"
+        />
+        <CustomSelect
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
-          className="px-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none text-slate-900 dark:text-white font-medium text-sm"
-        >
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-          <option value="all">All</option>
-        </select>
+          onChange={(val) => setStatusFilter(val as 'all' | 'active' | 'inactive')}
+          options={[
+            { value: 'active', label: 'Active' },
+            { value: 'inactive', label: 'Inactive' },
+            { value: 'all', label: 'All' },
+          ]}
+          className="min-w-[130px]"
+        />
         <button
           onClick={() => { setEditing(null); setShowForm(true); }}
           className="flex items-center justify-center gap-2 px-5 py-3 bg-slate-900 dark:bg-amber-400 text-white dark:text-slate-900 font-semibold rounded-xl hover:bg-slate-800 dark:hover:bg-amber-300 transition-colors whitespace-nowrap"
@@ -806,14 +734,14 @@ function SupplierFormModal({
           </Field>
 
           <Field label="Status">
-            <select
+            <CustomSelect
               value={active ? 'active' : 'inactive'}
-              onChange={(e) => setActive(e.target.value === 'active')}
-              className={inputCls}
-            >
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
+              onChange={(val) => setActive(val === 'active')}
+              options={[
+                { value: 'active', label: 'Active' },
+                { value: 'inactive', label: 'Inactive' },
+              ]}
+            />
           </Field>
 
           {error && (
@@ -920,16 +848,15 @@ function DeliveriesView({
       <ErrorBanner message={error} />
 
       <div className="flex flex-col sm:flex-row gap-3 mb-4 flex-wrap">
-        <select
+        <CustomSelect
           value={supplierFilter}
-          onChange={(e) => setSupplierFilter(e.target.value)}
-          className="px-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none text-slate-900 dark:text-white font-medium text-sm"
-        >
-          <option value="all">All Suppliers</option>
-          {suppliers.map((s) => (
-            <option key={s.id} value={s.id}>{s.name}</option>
-          ))}
-        </select>
+          onChange={setSupplierFilter}
+          options={[
+            { value: 'all', label: 'All Suppliers' },
+            ...suppliers.map((s) => ({ value: s.id, label: s.name })),
+          ]}
+          className="min-w-[180px]"
+        />
         <input
           type="date"
           value={fromDate}
@@ -1217,13 +1144,7 @@ function DeliveryFormModal({
               <CustomSelect
                 value={supplierId}
                 onChange={setSupplierId}
-                options={suppliers.map((s) => s.id)}
-                placeholder="Select supplier..."
-                renderValue={(val: string) => suppliers.find((s) => s.id === val)?.name || ''}
-                renderOption={(opt: string) => {
-                  const s = suppliers.find((x) => x.id === opt);
-                  return s ? `${s.name} (${s.types.join(', ')})` : opt;
-                }}
+                options={suppliers.map((s) => ({ value: s.id, label: `${s.name} (${s.types.join(', ')})` }))}
               />
             </Field>
             <Field label="Delivery Date" required>
@@ -1243,7 +1164,6 @@ function DeliveryFormModal({
                 value={materialType}
                 onChange={setMaterialType}
                 options={availableMaterials as string[]}
-                placeholder="Select material..."
               />
             </Field>
             <Field label="Bill / Challan Number">
@@ -1313,9 +1233,10 @@ function DeliveryFormModal({
             <CustomSelect
               value={siteId}
               onChange={setSiteId}
-              options={['', ...sites.map((s) => s.id)]}
-              renderValue={(val: string) => sites.find((s) => s.id === val)?.name || '— Not linked to any site —'}
-              renderOption={(opt: string) => sites.find((s) => s.id === opt)?.name || '— Not linked to any site —'}
+              options={[
+                { value: '', label: '— Not linked to any site —' },
+                ...sites.map((s) => ({ value: s.id, label: s.name })),
+              ]}
             />
           </Field>
 
@@ -1429,26 +1350,26 @@ function CommissionsView({
       <ErrorBanner message={error} />
 
       <div className="flex flex-col sm:flex-row gap-3 mb-4 flex-wrap">
-        <select
+        <CustomSelect
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as 'all' | Commission['status'])}
-          className="px-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none text-slate-900 dark:text-white font-medium text-sm"
-        >
-          <option value="all">All Statuses</option>
-          <option value="pending">Pending</option>
-          <option value="partial">Partial</option>
-          <option value="received">Received</option>
-        </select>
-        <select
+          onChange={(val) => setStatusFilter(val as 'all' | Commission['status'])}
+          options={[
+            { value: 'all', label: 'All Statuses' },
+            { value: 'pending', label: 'Pending' },
+            { value: 'partial', label: 'Partial' },
+            { value: 'received', label: 'Received' },
+          ]}
+          className="min-w-[150px]"
+        />
+        <CustomSelect
           value={supplierFilter}
-          onChange={(e) => setSupplierFilter(e.target.value)}
-          className="px-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none text-slate-900 dark:text-white font-medium text-sm"
-        >
-          <option value="all">All Suppliers</option>
-          {suppliers.map((s) => (
-            <option key={s.id} value={s.id}>{s.name}</option>
-          ))}
-        </select>
+          onChange={setSupplierFilter}
+          options={[
+            { value: 'all', label: 'All Suppliers' },
+            ...suppliers.map((s) => ({ value: s.id, label: s.name })),
+          ]}
+          className="min-w-[180px]"
+        />
         <div className="flex-1" />
         <button
           onClick={() => setShowForm(true)}
@@ -1708,9 +1629,7 @@ function CommissionFormModal({
               <CustomSelect
                 value={supplierId}
                 onChange={setSupplierId}
-                options={suppliers.map((s) => s.id)}
-                renderValue={(val: string) => suppliers.find(s => s.id === val)?.name || ''}
-                renderOption={(opt: string) => suppliers.find(x => x.id === opt)?.name || opt}
+                options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
               />
             </Field>
             <Field label="Date" required>

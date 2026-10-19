@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { X, AlertTriangle, Loader2, Info } from 'lucide-react';
 
 type Variant = 'danger' | 'warning' | 'default' | 'info';
@@ -12,6 +13,8 @@ type Props = {
   variant?: Variant;
   mode?: Mode;
   busy?: boolean;
+  /** Optional content rendered between the message and the action buttons. */
+  children?: ReactNode;
   onConfirm?: () => void | Promise<void>;
   onCancel: () => void;
 };
@@ -25,6 +28,7 @@ export default function ConfirmDialog({
   variant = 'danger',
   mode = 'confirm',
   busy = false,
+  children,
   onConfirm,
   onCancel,
 }: Props) {
@@ -70,7 +74,7 @@ export default function ConfirmDialog({
         className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start gap-3 p-5">
+        <div className="flex items-start gap-3 p-5 pb-3">
           <div
             className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${accent.iconBg}`}
           >
@@ -90,6 +94,8 @@ export default function ConfirmDialog({
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        {children && <div className="px-5 pb-3">{children}</div>}
 
         <div className="flex gap-2 px-5 pb-5">
           {mode === 'confirm' && (

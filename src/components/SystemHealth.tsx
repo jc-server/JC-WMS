@@ -25,6 +25,11 @@ function relativeTime(ts: number | null): string {
   return `${days} day${days === 1 ? '' : 's'} ago`;
 }
 
+type PendingRestore = {
+  payload: BackupPayload;
+  crossAccount: boolean;
+};
+
 export default function SystemHealth() {
   const { user } = useAuth();
   const {
@@ -48,7 +53,7 @@ export default function SystemHealth() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [pendingRestore, setPendingRestore] = useState<BackupPayload | null>(null);
+  const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(null);
   const [restoreMode, setRestoreMode] = useState<'merge' | 'replace'>('merge');
   const [toast, setToast] = useState<{ msg: string; type: 'saved' | 'error' } | null>(null);
 
@@ -91,12 +96,11 @@ export default function SystemHealth() {
       if (parsed.version !== 1 || parsed.app !== 'JCWMS' || !parsed.data) {
         throw new Error('This file does not look like a JCWMS backup.');
       }
-      if (parsed.exportedBy !== user?.uid) {
-        throw new Error(
-          'This backup was created by a different account and cannot be restored here.'
-        );
-      }
-      setPendingRestore(parsed);
+      // Backup from a different account is now allowed — it will be
+      // imported into whichever account is signed in. We surface a
+      // warning in the confirm dialog instead of blocking.
+      const crossAccount = parsed.exportedBy !== user?.uid;
+      setPendingRestore({ payload: parsed, crossAccount });
     } catch (err) {
       showToast((err as Error).message, 'error');
     } finally {
@@ -107,7 +111,7 @@ export default function SystemHealth() {
   const confirmRestore = async () => {
     if (!pendingRestore) return;
     try {
-      await restore(pendingRestore, restoreMode);
+      await restore(pendingRestore.payload, restoreMode);
       showToast('Restore completed successfully.', 'saved');
       setPendingRestore(null);
       await refresh();
@@ -138,8 +142,6 @@ export default function SystemHealth() {
       ? 'bg-amber-500'
       : 'bg-emerald-500';
 
-  // Even 1% of 1 GiB is ~10 MB. Show a hairline at minimum so the user
-  // can see the bar exists but knows it's tiny.
   const storageBarWidth = Math.max(storagePercent, storageBytes > 0 ? 1 : 0);
 
   const health = loading
@@ -187,6 +189,46 @@ export default function SystemHealth() {
 
   const HealthIcon = healthMeta.icon;
 
+  /* ------------------------------------------------------------------ */
+  /* Restore dialog message                                              */
+  /* ------------------------------------------------------------------ */
+
+  const buildRestoreMessage = (): string => {
+    if (!pendingRestore) return '';
+    const d = pendingRestore.payload.data;
+    const parts = [
+      `${d.workers.length} worker${d.workers.length === 1 ? '' : 's'}`,
+      `${d.attendance.length} attendance record${d.attendance.length === 1 ? '' : 's'}`,
+      `${d.advances.length} advance${d.advances.length === 1 ? '' : 's'}`,
+      `${d.sites.length} site${d.sites.length === 1 ? '' : 's'}`,
+    ];
+    const suppliers = d.suppliers ?? [];
+    const deliveries = d.deliveries ?? [];
+    const commissions = d.commissions ?? [];
+    const payments = d.supplierPayments ?? [];
+    const contractors = d.contractors ?? [];
+    const contractorPayments = d.contractorPayments ?? [];
+
+    if (suppliers.length > 0)
+      parts.push(`${suppliers.length} supplier${suppliers.length === 1 ? '' : 's'}`);
+    if (deliveries.length > 0)
+      parts.push(
+        `${deliveries.length} material deliver${deliveries.length === 1 ? 'y' : 'ies'}`
+      );
+    if (commissions.length > 0)
+      parts.push(`${commissions.length} commission${commissions.length === 1 ? '' : 's'}`);
+    if (payments.length > 0)
+      parts.push(`${payments.length} supplier payment${payments.length === 1 ? '' : 's'}`);
+    if (contractors.length > 0)
+      parts.push(`${contractors.length} contractor${contractors.length === 1 ? '' : 's'}`);
+    if (contractorPayments.length > 0)
+      parts.push(
+        `${contractorPayments.length} contractor payment${contractorPayments.length === 1 ? '' : 's'}`
+      );
+
+    return `This will restore ${parts.join(', ')}.`;
+  };
+
   return (
     <div>
       {toast && (
@@ -216,7 +258,6 @@ export default function SystemHealth() {
         </button>
       </div>
 
-      {/* Health banner */}
       <div className={`${healthMeta.bg} ${healthMeta.border} border rounded-2xl p-4 mb-5 flex items-center gap-3`}>
         <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${healthMeta.bg} border ${healthMeta.border}`}>
           <HealthIcon className={`w-5 h-5 ${healthMeta.color} ${health === 'checking' ? 'animate-spin' : ''}`} />
@@ -238,7 +279,6 @@ export default function SystemHealth() {
         </div>
       </div>
 
-      {/* Storage usage */}
       <div className="bg-white dark:bg-zinc-900 rounded-2xl p-5 border border-slate-200 dark:border-zinc-800 mb-5">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -267,7 +307,6 @@ export default function SystemHealth() {
         </div>
       </div>
 
-      {/* Total documents */}
       <div className="bg-white dark:bg-zinc-900 rounded-2xl p-5 border border-slate-200 dark:border-zinc-800 mb-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -284,7 +323,6 @@ export default function SystemHealth() {
         </p>
       </div>
 
-      {/* Counts */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5">
         <MetricCard
           icon={Users}
@@ -328,7 +366,6 @@ export default function SystemHealth() {
         />
       </div>
 
-      {/* Material Ledger counts */}
       {counts?.materials && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
           <MetricCard
@@ -372,7 +409,6 @@ export default function SystemHealth() {
         </div>
       )}
 
-      {/* Contractor counts */}
       {counts?.contractors && (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
           <MetricCard
@@ -404,7 +440,6 @@ export default function SystemHealth() {
         </div>
       )}
 
-      {/* Info strip */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
         <InfoTile
           icon={Clock}
@@ -423,7 +458,6 @@ export default function SystemHealth() {
         />
       </div>
 
-      {/* Backup & Restore */}
       <div className="bg-white dark:bg-zinc-900 rounded-2xl p-5 border border-slate-200 dark:border-zinc-800 mb-5">
         <div className="flex items-center gap-2 mb-1">
           <HardDriveDownload className="w-5 h-5 text-emerald-500" />
@@ -478,7 +512,6 @@ export default function SystemHealth() {
         )}
       </div>
 
-      {/* Danger zone */}
       <div className="bg-red-50 dark:bg-red-950/20 rounded-2xl p-5 border border-red-200 dark:border-red-900">
         <div className="flex items-center gap-2 mb-1">
           <AlertTriangle className="w-5 h-5 text-red-500" />
@@ -498,79 +531,58 @@ export default function SystemHealth() {
         </button>
       </div>
 
-      {/* Restore confirmation */}
+      {/* ------------------------------------------------------------------ */}
+      {/* Restore confirmation — mode selector embedded INSIDE the dialog.    */}
+      {/* ------------------------------------------------------------------ */}
       <ConfirmDialog
         open={pendingRestore !== null}
         title="Restore Backup?"
-        message={(() => {
-          const d = pendingRestore?.data;
-          if (!d) return '';
-          const parts = [
-            `${d.workers.length} worker${d.workers.length === 1 ? '' : 's'}`,
-            `${d.attendance.length} attendance record${d.attendance.length === 1 ? '' : 's'}`,
-            `${d.advances.length} advance${d.advances.length === 1 ? '' : 's'}`,
-            `${d.sites.length} site${d.sites.length === 1 ? '' : 's'}`,
-          ];
-          const suppliers = d.suppliers ?? [];
-          const deliveries = d.deliveries ?? [];
-          const commissions = d.commissions ?? [];
-          const payments = d.supplierPayments ?? [];
-          const contractors = d.contractors ?? [];
-          const contractorPayments = d.contractorPayments ?? [];
-          if (suppliers.length > 0)
-            parts.push(`${suppliers.length} supplier${suppliers.length === 1 ? '' : 's'}`);
-          if (deliveries.length > 0)
-            parts.push(`${deliveries.length} material deliver${deliveries.length === 1 ? 'y' : 'ies'}`);
-          if (commissions.length > 0)
-            parts.push(`${commissions.length} commission${commissions.length === 1 ? '' : 's'}`);
-          if (payments.length > 0)
-            parts.push(`${payments.length} supplier payment${payments.length === 1 ? '' : 's'}`);
-          if (contractors.length > 0)
-            parts.push(`${contractors.length} contractor${contractors.length === 1 ? '' : 's'}`);
-          if (contractorPayments.length > 0)
-            parts.push(
-              `${contractorPayments.length} contractor payment${contractorPayments.length === 1 ? '' : 's'}`
-            );
-          return `This will restore ${parts.join(', ')}.`;
-        })()}
+        message={buildRestoreMessage()}
         confirmLabel="Restore Now"
         cancelLabel="Cancel"
         variant="warning"
         busy={busy}
         onCancel={() => setPendingRestore(null)}
         onConfirm={confirmRestore}
-      />
-
-      {/* Restore mode chooser */}
-      {pendingRestore && (
-        <div className="fixed bottom-4 right-4 z-[81] bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-2xl p-4 shadow-2xl w-72">
-          <p className="text-xs font-bold text-slate-900 dark:text-white mb-2">Restore Mode</p>
-          <label className="flex items-center gap-2 py-1.5 cursor-pointer">
+      >
+        {pendingRestore?.crossAccount && (
+          <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-lg p-2.5 mb-2">
+            <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
+              <strong>Cross-account backup.</strong> This file was created by a different
+              account and will be imported into your current account.
+            </p>
+          </div>
+        )}
+        <div>
+          <p className="text-xs font-bold text-slate-900 dark:text-white mb-1.5">
+            Restore Mode
+          </p>
+          <label className="flex items-start gap-2 py-1 cursor-pointer">
             <input
               type="radio"
               checked={restoreMode === 'merge'}
               onChange={() => setRestoreMode('merge')}
-              className="accent-amber-500"
+              className="mt-0.5 accent-amber-500"
             />
-            <span className="text-xs text-slate-700 dark:text-slate-200">
-              Merge — keep existing, add missing
+            <span className="text-xs text-slate-700 dark:text-slate-200 leading-snug">
+              <strong>Merge</strong> — keep existing data, add or overwrite matching IDs.
             </span>
           </label>
-          <label className="flex items-center gap-2 py-1.5 cursor-pointer">
+          <label className="flex items-start gap-2 py-1 cursor-pointer">
             <input
               type="radio"
               checked={restoreMode === 'replace'}
               onChange={() => setRestoreMode('replace')}
-              className="accent-red-500"
+              className="mt-0.5 accent-red-500"
             />
-            <span className="text-xs text-slate-700 dark:text-slate-200">
-              Replace — wipe existing data first
+            <span className="text-xs text-slate-700 dark:text-slate-200 leading-snug">
+              <strong>Replace</strong> — wipe existing data first. Auto-rolls back on
+              failure (a safety backup is taken automatically).
             </span>
           </label>
         </div>
-      )}
+      </ConfirmDialog>
 
-      {/* Clear all data confirm */}
       <ConfirmDialog
         open={showClearConfirm}
         title="Clear All Data?"
