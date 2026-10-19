@@ -8,6 +8,7 @@ import type { Worker } from '@/hooks/useWorkers';
 import { rowsToCsv, downloadCsv } from '@/utils/csv';
 import { currentMonthStr, monthLabel, monthRange } from '@/utils/date';
 import { calculateAggregateWages } from '@/utils/calculations';
+import { CustomSelect } from '@/components/CustomSelect';
 
 type Props = {
   workers: Worker[];
@@ -451,19 +452,15 @@ function AdvanceModal({
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               Worker
             </label>
-            <select
-              required
+            <CustomSelect
               value={workerId}
-              onChange={(e) => setWorkerId(e.target.value)}
-              className="w-full px-4 py-3 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all"
-            >
-              {workers.length === 0 && <option value="">No workers available</option>}
-              {workers.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
+              onChange={setWorkerId}
+              options={
+                workers.length === 0
+                  ? [{ value: '', label: 'No workers available' }]
+                  : workers.map((w) => ({ value: w.id, label: w.name }))
+              }
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">

@@ -43,6 +43,7 @@ export function useSupplierPayments() {
   const { user } = useAuth();
   const [payments, setPayments] = useState<SupplierPayment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -74,10 +75,12 @@ export function useSupplierPayments() {
           };
         });
         setPayments(list);
+        setError(null);
         setLoading(false);
       },
       (err) => {
         console.error('Supplier payments listener error:', err.message);
+        setError(err.message);
         setLoading(false);
       }
     );
@@ -127,5 +130,5 @@ export function useSupplierPayments() {
     [user]
   );
 
-  return { payments, loading, addPayment, updatePayment, deletePayment };
+  return { payments, loading, error, addPayment, updatePayment, deletePayment };
 }

@@ -18,7 +18,6 @@ import InstallPwaButton from '@/components/InstallPwaButton';
 import NetworkStatus from '@/components/NetworkStatus';
 import { todayStr } from '@/utils/date';
 
-// Lazy-loaded tabs — code for these is only fetched when the user opens them.
 const WageSummaryView = lazy(() => import('@/components/WageSummary'));
 const SiteLedger = lazy(() => import('@/components/SiteLedger'));
 const MaterialLedger = lazy(() => import('@/components/MaterialLedger'));
@@ -26,13 +25,7 @@ const ContractorPayments = lazy(() => import('@/components/ContractorPayments'))
 const SystemHealth = lazy(() => import('@/components/SystemHealth'));
 
 type Tab =
-  | 'attendance'
-  | 'workers'
-  | 'wages'
-  | 'ledger'
-  | 'materials'
-  | 'contractors'
-  | 'system';
+  | 'attendance' | 'workers' | 'wages' | 'ledger' | 'materials' | 'contractors' | 'system';
 
 function TabLoader() {
   return (
@@ -47,12 +40,7 @@ export default function App() {
   const { theme, toggleTheme } = useTheme();
   const [tab, setTab] = useState<Tab>('attendance');
   const [todayMetrics, setTodayMetrics] = useState({
-    present: 0,
-    absent: 0,
-    half: 0,
-    otHours: 0,
-    advancePayout: 0,
-    dailyCost: 0,
+    present: 0, absent: 0, half: 0, otHours: 0, advancePayout: 0, dailyCost: 0,
   });
   const [imgError, setImgError] = useState(false);
 
@@ -67,13 +55,17 @@ export default function App() {
   const { advances } = useAdvances();
   const [profileWorker, setProfileWorker] = useState<Worker | null>(null);
 
+  // FIX: Reset per-user UI state when the signed-in user changes. Otherwise
+  // a stale `profileWorker` from user A leaks into user B's session and any
+  // update would target the wrong path.
+  useEffect(() => {
+    setProfileWorker(null);
+    setTab('attendance');
+  }, [user?.uid]);
+
   useEffect(() => {
     const activeWorkers = workers.filter((w) => w.active);
-    let present = 0,
-      absent = 0,
-      half = 0,
-      otHours = 0,
-      dailyCost = 0;
+    let present = 0, absent = 0, half = 0, otHours = 0, dailyCost = 0;
 
     activeWorkers.forEach((w) => {
       const r = todayAtt[w.id];
@@ -99,15 +91,11 @@ export default function App() {
       .reduce((sum, a) => sum + a.amount, 0);
 
     const attendanceAdvanceToday = Object.values(todayAtt).reduce(
-      (sum, r) => sum + (r.advanceAmount ?? 0),
-      0
+      (sum, r) => sum + (r.advanceAmount ?? 0), 0
     );
 
     setTodayMetrics({
-      present,
-      absent,
-      half,
-      otHours,
+      present, absent, half, otHours,
       advancePayout: khataAdvanceToday + attendanceAdvanceToday,
       dailyCost,
     });

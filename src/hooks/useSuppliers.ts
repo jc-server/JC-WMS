@@ -34,7 +34,7 @@ export const SUPPLIER_TYPES: SupplierType[] = [
 export type Supplier = {
   id: string;
   name: string;
-  type: SupplierType;
+  types: SupplierType[];
   contactName: string;
   phone: string;
   address: string;
@@ -44,7 +44,9 @@ export type Supplier = {
   createdAt: number;
 };
 
-export type SupplierInput = Omit<Supplier, 'id' | 'createdAt' | 'active'>;
+export type SupplierInput = Omit<Supplier, 'id' | 'createdAt' | 'active'> & {
+  active?: boolean;
+};
 
 function suppliersPath(user: string) {
   return collection(db, 'users', user, 'suppliers');
@@ -70,10 +72,21 @@ export function useSuppliers() {
       (snap) => {
         const list: Supplier[] = snap.docs.map((d) => {
           const data = d.data() as Record<string, unknown>;
+          
+          // Backwards compatibility: map legacy `type` to `types` array
+          const rawTypes = data.types as SupplierType[] | undefined;
+          const legacyType = data.type as SupplierType | undefined;
+          
+          // FIX: Explicitly type the variable so TypeScript knows the fallback
+          // string array conforms to SupplierType[]
+          const types: SupplierType[] = rawTypes && rawTypes.length > 0 
+            ? rawTypes 
+            : (legacyType ? [legacyType] : ['Other']);
+
           return {
             id: d.id,
             name: (data.name as string) ?? '',
-            type: ((data.type as SupplierType) ?? 'Other'),
+            types,
             contactName: (data.contactName as string) ?? '',
             phone: (data.phone as string) ?? '',
             address: (data.address as string) ?? '',
@@ -102,8 +115,14 @@ export function useSuppliers() {
       if (!user) throw new Error('Not signed in.');
       try {
         await addDoc(suppliersPath(user.uid), {
-          ...input,
-          active: true,
+          name: input.name,
+          types: input.types,
+          contactName: input.contactName,
+          phone: input.phone,
+          address: input.address,
+          gstin: input.gstin,
+          notes: input.notes,
+          active: input.active ?? true,
           createdAt: Date.now(),
         });
       } catch (err) {

@@ -33,7 +33,12 @@ export type Contractor = {
   createdAt: number;
 };
 
-export type ContractorInput = Omit<Contractor, 'id' | 'createdAt' | 'active'>;
+/** `active` is optional on input — omit on create (defaults to true). */
+export type ContractorInput = Omit<Contractor, 'id' | 'createdAt' | 'active'> & {
+  active?: boolean;
+};
+
+export type ContractorUpdate = Partial<ContractorInput>;
 
 export type ContractorPaymentMode = 'Cash' | 'UPI' | 'Bank Transfer' | 'Cheque';
 
@@ -111,8 +116,11 @@ export function useContractors() {
     if (!user) throw new Error('Not signed in.');
     try {
       await addDoc(contractorsPath(user.uid), {
-        ...input,
-        active: true,
+        name: input.name,
+        trade: input.trade,
+        phone: input.phone,
+        notes: input.notes,
+        active: input.active ?? true,
         createdAt: Date.now(),
       });
     } catch (err) {
@@ -122,7 +130,7 @@ export function useContractors() {
   }, [user]);
 
   const updateContractor = useCallback(
-    async (id: string, updates: Partial<ContractorInput & { active: boolean }>) => {
+    async (id: string, updates: ContractorUpdate) => {
       if (!user) throw new Error('Not signed in.');
       try {
         await updateDoc(doc(db, 'users', user.uid, 'contractors', id), updates);
@@ -201,6 +209,9 @@ export function useContractorPayments() {
    * linked site's ledger in the SAME Firestore batch. Both writes commit
    * atomically — the payment is never left without its site-ledger entry,
    * and the site-ledger entry is never left without its payment.
+   *
+   * Category is trimmed to 100 chars so `validTransaction` (category
+   * ≤ 100) can never abort the batch on a long trade label.
    */
   const addPayment = useCallback(
     async (
@@ -219,18 +230,19 @@ export function useContractorPayments() {
         const txRef = doc(
           collection(db, 'users', uid, 'sites', payload.siteId, 'transactions')
         );
-        const category = `Contractor${meta?.trade ? ` - ${meta.trade}` : ''}`;
+        const category = `Contractor${meta?.trade ? ` - ${meta.trade}` : ''}`.slice(0, 100);
+        const remark = [
+          meta?.contractorName ?? 'Contractor',
+          payload.workDescription,
+          payload.reference ? `Ref ${payload.reference}` : '',
+        ].filter(Boolean).join(' · ').slice(0, 500);
         batch.set(txRef, {
           type: 'debit',
           amount: roundCurrency(payload.amount),
           date: payload.date,
           category,
           paymentMode: payload.paymentMode,
-          remark: [
-            meta?.contractorName ?? 'Contractor',
-            payload.workDescription,
-            payload.reference ? `Ref ${payload.reference}` : '',
-          ].filter(Boolean).join(' · '),
+          remark,
           createdAt: Date.now(),
         });
       }

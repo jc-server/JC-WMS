@@ -10,7 +10,14 @@ type Props = {
   onClose: () => void;
 };
 
-export default function ManageRolesModal({ roles, workerRoles, onAdd, onUpdate, onDelete, onClose }: Props) {
+export default function ManageRolesModal({
+  roles,
+  workerRoles,
+  onAdd,
+  onUpdate,
+  onDelete,
+  onClose,
+}: Props) {
   const [newRole, setNewRole] = useState('');
   const [editingRole, setEditingRole] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -62,17 +69,25 @@ export default function ManageRolesModal({ roles, workerRoles, onAdd, onUpdate, 
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-zinc-800 sticky top-0 bg-white dark:bg-zinc-900 rounded-t-2xl z-10">
           <h2 className="text-lg font-bold text-slate-900 dark:text-white">Manage Roles</h2>
-          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors">
+          <button
+            onClick={onClose}
+            className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <div className="p-5 space-y-4">
-          {/* Add new role */}
           <form onSubmit={handleAdd} className="flex gap-2">
             <input
               value={newRole}
@@ -91,13 +106,16 @@ export default function ManageRolesModal({ roles, workerRoles, onAdd, onUpdate, 
           </form>
 
           {error && (
-            <p className="text-red-600 dark:text-red-400 text-sm bg-red-50 dark:bg-red-950/40 rounded-lg p-3">{error}</p>
+            <p className="text-red-600 dark:text-red-400 text-sm bg-red-50 dark:bg-red-950/40 rounded-lg p-3">
+              {error}
+            </p>
           )}
 
-          {/* Roles list */}
           <div className="space-y-2">
             {roles.length === 0 && (
-              <p className="text-center py-6 text-slate-400 dark:text-slate-500 text-sm">No roles yet. Add one above.</p>
+              <p className="text-center py-6 text-slate-400 dark:text-slate-500 text-sm">
+                No roles yet. Add one above.
+              </p>
             )}
             {roles.map((role) => {
               const workerCount = workerRoles.filter((r) => r === role).length;
@@ -106,12 +124,15 @@ export default function ManageRolesModal({ roles, workerRoles, onAdd, onUpdate, 
 
               if (isConfirming) {
                 return (
-                  <div key={role} className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-xl p-3">
+                  <div
+                    key={role}
+                    className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-xl p-3"
+                  >
                     <div className="flex items-start gap-2 mb-3">
                       <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
                       <p className="text-sm text-red-700 dark:text-red-300 font-medium">
                         {workerCount > 0
-                          ? `${workerCount} worker${workerCount > 1 ? 's' : ''} currently assigned as "${role}". Deleting this role will not change existing worker assignments, but the role will no longer appear in the dropdown.`
+                          ? `Deleting "${role}" will reassign the ${workerCount} worker${workerCount > 1 ? 's' : ''} currently in this role to the first remaining role.`
                           : `Delete "${role}"?`}
                       </p>
                     </div>
@@ -168,7 +189,9 @@ export default function ManageRolesModal({ roles, workerRoles, onAdd, onUpdate, 
                   ) : (
                     <>
                       <div className="flex-1 flex items-center gap-2">
-                        <span className="text-sm font-medium text-slate-900 dark:text-white">{role}</span>
+                        <span className="text-sm font-medium text-slate-900 dark:text-white">
+                          {role}
+                        </span>
                         {workerCount > 0 && (
                           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-zinc-700 text-slate-600 dark:text-slate-300">
                             {workerCount} worker{workerCount > 1 ? 's' : ''}

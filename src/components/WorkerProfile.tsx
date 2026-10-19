@@ -12,6 +12,7 @@ import type { AttendanceStatus } from '@/hooks/useAttendance';
 import { useRoleCascade } from '@/hooks/useRoleCascade';
 import ManageRolesModal from '@/components/ManageRolesModal';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import { CustomSelect } from '@/components/CustomSelect';
 import { rowsToCsv, downloadCsv } from '@/utils/csv';
 import { isToday as isTodayFn, monthLabel } from '@/utils/date';
 import { calculateAggregateWages } from '@/utils/calculations';
@@ -34,11 +35,6 @@ const STATUS_BADGE: Record<
 
 type Props = {
   worker: Worker;
-  /**
-   * The full list of workers. Required so role renames/deletes cascade to
-   * every worker assigned that role — this keeps the workers collection
-   * consistent with the roles settings document.
-   */
   workers: Worker[];
   onClose: () => void;
   onUpdate: (
@@ -83,8 +79,6 @@ export default function WorkerProfile({
   const [confirmHardDelete, setConfirmHardDelete] = useState(false);
   const [showRolesModal, setShowRolesModal] = useState(false);
 
-  // Cascade-aware role management — renames/deletes propagate to every
-  // worker currently assigned the old role.
   const { roles, addRole, updateRole, deleteRole } = useRoleCascade(
     workers,
     onUpdate
@@ -166,7 +160,6 @@ export default function WorkerProfile({
       else if (r.status === 'half') half++;
       else if (r.status === 'holiday') holiday++;
       else absent++;
-      // OT is only paid on days the worker was on-site.
       if (r.status !== 'absent') otHours += r.overtimeHours;
       dailyPaid += r.amountPaid || 0;
       attendanceAdvances += r.advanceAmount || 0;
@@ -374,17 +367,12 @@ export default function WorkerProfile({
                     Role
                   </label>
                   <div className="flex gap-2">
-                    <select
+                    <CustomSelect
                       value={editRole}
-                      onChange={(e) => setEditRole(e.target.value)}
-                      className="flex-1 px-3 py-2 bg-white dark:bg-zinc-900 text-slate-900 dark:text-white rounded-lg border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none text-sm"
-                    >
-                      {roles.map((r) => (
-                        <option key={r} value={r}>
-                          {r}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={setEditRole}
+                      options={roles}
+                      className="flex-1"
+                    />
                     <button
                       type="button"
                       onClick={() => setShowRolesModal(true)}
@@ -886,7 +874,6 @@ function DayEditPopup({
 
   const handleSave = async () => {
     setSaving(true);
-    // An absent worker cannot log OT — coerce to 0 before persisting.
     await onSave(
       status,
       isAbsent ? 0 : ot,
@@ -934,7 +921,6 @@ function DayEditPopup({
                 key={s}
                 onClick={() => {
                   setStatus(s);
-                  // Zero OT when marking absent.
                   if (s === 'absent') setOt(0);
                 }}
                 className={`flex-1 py-3 rounded-xl border-2 font-semibold text-xs transition-all active:scale-95 flex flex-col items-center gap-1 ${

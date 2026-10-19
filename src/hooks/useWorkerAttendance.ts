@@ -35,6 +35,11 @@ export function useWorkerAttendance(workerId: string | null, monthStr: string) {
       return;
     }
 
+    // FIX: Show the loading state immediately on month change so the UI
+    // never displays the previous month's records while the new snapshot
+    // is being fetched.
+    setLoading(true);
+
     const { start, end } = monthRange(monthStr);
 
     // Range-only query → no composite index required.
@@ -98,7 +103,6 @@ export function useWorkerAttendance(workerId: string | null, monthStr: string) {
           advanceAmount,
           remark,
           isHoliday,
-          // Only clear holidayReason when status is no longer holiday.
           ...(isHoliday ? {} : { holidayReason: null }),
           updatedAt: Date.now(),
         },

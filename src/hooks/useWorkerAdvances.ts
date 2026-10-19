@@ -32,6 +32,10 @@ export function useWorkerAdvances(workerId: string | null, monthStr: string) {
       return;
     }
 
+    // FIX: Enter loading state on month change so the previous month's
+    // advances don't linger while the new snapshot is being fetched.
+    setLoading(true);
+
     const { start, end } = monthRange(monthStr);
 
     // Range-only query → no composite index required.

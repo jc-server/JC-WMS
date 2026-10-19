@@ -1,9 +1,9 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Truck, Building2, Package, IndianRupee, Plus, X, Search, Pencil,
-  Trash2, Loader2, Download, TrendingUp, TrendingDown, Wallet, Phone,
-  MapPin, FileText, Calendar, Percent, Check, AlertCircle, Filter,
-  ChevronRight, BookOpen, BadgeCheck,
+  Trash2, Loader2, Download, TrendingDown, Wallet, Phone,
+  Percent, Check, AlertCircle, ChevronRight, BookOpen, BadgeCheck,
+  FileText, ChevronDown,
 } from 'lucide-react';
 
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -22,38 +22,42 @@ import {
   type MaterialDelivery,
   type MaterialUnit,
 } from '@/hooks/useMaterialDeliveries';
-import {
-  useCommissions,
-  type Commission,
-} from '@/hooks/useCommissions';
+import { useCommissions, type Commission } from '@/hooks/useCommissions';
 import {
   useSupplierPayments,
   SUPPLIER_PAYMENT_MODES,
   type SupplierPaymentMode,
 } from '@/hooks/useSupplierPayments';
 import { rowsToCsv, downloadCsv } from '@/utils/csv';
-import { todayStr, monthStartStr, monthEndStr, currentMonthStr } from '@/utils/date';
+import { todayStr } from '@/utils/date';
 import { roundCurrency } from '@/utils/calculations';
 
 type SubTab = 'suppliers' | 'deliveries' | 'commissions' | 'khata';
-
 type Toast = { msg: string; type: 'saved' | 'error' } | null;
 
 export default function MaterialLedger() {
   const [subTab, setSubTab] = useState<SubTab>('suppliers');
   const [toast, setToast] = useState<Toast>(null);
 
-  const { suppliers, loading: suppliersLoading, addSupplier, updateSupplier, deleteSupplier } =
-    useSuppliers();
+  const {
+    suppliers,
+    loading: suppliersLoading,
+    error: suppliersError,
+    addSupplier,
+    updateSupplier,
+    deleteSupplier,
+  } = useSuppliers();
   const {
     deliveries,
     loading: deliveriesLoading,
+    error: deliveriesError,
     addDelivery,
     deleteDelivery,
   } = useMaterialDeliveries();
   const {
     commissions,
     loading: commissionsLoading,
+    error: commissionsError,
     addCommission,
     recordReceipt,
     resetReceipt,
@@ -84,7 +88,6 @@ export default function MaterialLedger() {
     return m;
   }, [sites]);
 
-  // Khata aggregation (per supplier)
   const khata = useMemo(() => {
     const map = new Map<
       string,
@@ -119,7 +122,6 @@ export default function MaterialLedger() {
     const pendingCommission = commissions
       .filter((c) => c.status !== 'received')
       .reduce((s, c) => s + (c.amount - c.receivedAmount), 0);
-    const totalDriverPaid = deliveries.reduce((s, d) => s + d.driverPaid, 0);
     const totalTrucks = deliveries.reduce((s, d) => s + d.truckCount, 0);
     return {
       totalBilled: roundCurrency(totalBilled),
@@ -127,7 +129,6 @@ export default function MaterialLedger() {
       totalDue,
       totalCommission: roundCurrency(totalCommission),
       pendingCommission: roundCurrency(pendingCommission),
-      totalDriverPaid: roundCurrency(totalDriverPaid),
       totalTrucks,
     };
   }, [deliveries, payments, commissions]);
@@ -158,13 +159,11 @@ export default function MaterialLedger() {
         </div>
       )}
 
-      {/* Header */}
       <div className="flex items-center gap-2 mb-4">
         <Package className="w-5 h-5 text-amber-500" />
         <h2 className="text-lg font-bold text-slate-900 dark:text-white">Material Ledger</h2>
       </div>
 
-      {/* Summary ribbon */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 mb-5">
         <SummaryTile
           icon={Truck}
@@ -213,7 +212,6 @@ export default function MaterialLedger() {
         />
       </div>
 
-      {/* Sub-tab nav */}
       <div className="flex gap-1 mb-5 overflow-x-auto">
         {subTabs.map((t) => {
           const Icon = t.icon;
@@ -250,6 +248,7 @@ export default function MaterialLedger() {
         <SuppliersView
           suppliers={suppliers}
           loading={suppliersLoading}
+          error={suppliersError}
           khata={khata}
           onAdd={addSupplier}
           onUpdate={updateSupplier}
@@ -266,6 +265,7 @@ export default function MaterialLedger() {
           sites={sites}
           siteName={siteName}
           loading={deliveriesLoading}
+          error={deliveriesError}
           onAdd={(input, supplierName) => addDelivery(input, supplierName)}
           onDelete={deleteDelivery}
           showToast={showToast}
@@ -278,6 +278,7 @@ export default function MaterialLedger() {
           suppliers={suppliers}
           supplierById={supplierById}
           loading={commissionsLoading}
+          error={commissionsError}
           onAdd={addCommission}
           onRecordReceipt={recordReceipt}
           onResetReceipt={resetReceipt}
@@ -308,45 +309,36 @@ export default function MaterialLedger() {
 /* ------------------------------------------------------------------ */
 
 function SummaryTile({
-  icon: Icon,
-  label,
-  value,
-  sub,
-  color,
-  bg,
+  icon: Icon, label, value, sub, color, bg,
 }: {
-  icon: typeof Truck;
-  label: string;
-  value: string;
-  sub?: string;
-  color: string;
-  bg: string;
+  icon: typeof Truck; label: string; value: string; sub?: string; color: string; bg: string;
 }) {
   return (
     <div className={`${bg} rounded-xl p-3 border border-transparent transition-all hover:scale-[1.02]`}>
       <Icon className={`w-4 h-4 ${color} mb-1`} />
       <p className={`text-lg font-bold ${color} leading-none`}>{value}</p>
       <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-1">{label}</p>
-      {sub && (
-        <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 truncate">{sub}</p>
-      )}
+      {sub && <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 truncate">{sub}</p>}
+    </div>
+  );
+}
+
+function ErrorBanner({ message }: { message: string | null }) {
+  if (!message) return null;
+  return (
+    <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 rounded-xl p-3 mb-4 text-sm">
+      Could not load data: {message}
     </div>
   );
 }
 
 const inputCls =
   'w-full px-4 py-3 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all text-sm';
-const selectCls =
-  'px-3 py-2 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none text-xs font-medium';
 
 function Field({
-  label,
-  required,
-  children,
+  label, required, children,
 }: {
-  label: string;
-  required?: boolean;
-  children: React.ReactNode;
+  label: string; required?: boolean; children: React.ReactNode;
 }) {
   return (
     <div>
@@ -354,6 +346,79 @@ function Field({
         {label} {required && <span className="text-red-500">*</span>}
       </label>
       {children}
+    </div>
+  );
+}
+
+// Custom Dropdown Component for beautiful UI
+function CustomSelect({
+  value, onChange, options, placeholder, renderValue, renderOption
+}: {
+  value: string; 
+  onChange: (val: string) => void; 
+  options: string[]; 
+  placeholder?: string;
+  renderValue?: (val: string) => string;
+  renderOption?: (opt: string) => string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const displayVal = value ? (renderValue ? renderValue(value) : value) : (placeholder || 'Select...');
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={`${inputCls} flex items-center justify-between text-left`}
+      >
+        <span className={`truncate ${!value ? 'text-slate-500 dark:text-slate-400' : ''}`}>
+          {displayVal}
+        </span>
+        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+      
+      {isOpen && (
+        <div className="absolute z-50 w-full mt-1 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl shadow-xl max-h-60 overflow-y-auto py-1">
+          {options.length === 0 && (
+            <div className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400 text-center">
+              No options available
+            </div>
+          )}
+          {options.map((opt) => {
+            const displayOpt = renderOption ? renderOption(opt) : opt;
+            return (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => {
+                  onChange(opt);
+                  setIsOpen(false);
+                }}
+                className={`w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center justify-between ${
+                  value === opt
+                    ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 font-semibold'
+                    : 'text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-700/50'
+                }`}
+              >
+                <span className="truncate">{displayOpt}</span>
+                {value === opt && <Check className="w-4 h-4 shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -373,16 +438,11 @@ const SUPPLIER_TYPE_COLORS: Record<SupplierType, string> = {
 };
 
 function SuppliersView({
-  suppliers,
-  loading,
-  khata,
-  onAdd,
-  onUpdate,
-  onDelete,
-  showToast,
+  suppliers, loading, error, khata, onAdd, onUpdate, onDelete, showToast,
 }: {
   suppliers: Supplier[];
   loading: boolean;
+  error: string | null;
   khata: Map<string, { billed: number; paid: number; due: number }>;
   onAdd: (input: SupplierInput) => Promise<void>;
   onUpdate: (id: string, updates: Partial<SupplierInput & { active: boolean }>) => Promise<void>;
@@ -401,7 +461,7 @@ function SuppliersView({
     return suppliers.filter((s) => {
       if (statusFilter === 'active' && !s.active) return false;
       if (statusFilter === 'inactive' && s.active) return false;
-      if (typeFilter !== 'all' && s.type !== typeFilter) return false;
+      if (typeFilter !== 'all' && !s.types.includes(typeFilter)) return false;
       const q = search.trim().toLowerCase();
       if (!q) return true;
       return (
@@ -428,6 +488,8 @@ function SuppliersView({
 
   return (
     <div>
+      <ErrorBanner message={error} />
+
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
@@ -445,16 +507,12 @@ function SuppliersView({
         >
           <option value="all">All Types</option>
           {SUPPLIER_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
+            <option key={t} value={t}>{t}</option>
           ))}
         </select>
         <select
           value={statusFilter}
-          onChange={(e) =>
-            setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')
-          }
+          onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
           className="px-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none text-slate-900 dark:text-white font-medium text-sm"
         >
           <option value="active">Active</option>
@@ -462,10 +520,7 @@ function SuppliersView({
           <option value="all">All</option>
         </select>
         <button
-          onClick={() => {
-            setEditing(null);
-            setShowForm(true);
-          }}
+          onClick={() => { setEditing(null); setShowForm(true); }}
           className="flex items-center justify-center gap-2 px-5 py-3 bg-slate-900 dark:bg-amber-400 text-white dark:text-slate-900 font-semibold rounded-xl hover:bg-slate-800 dark:hover:bg-amber-300 transition-colors whitespace-nowrap"
         >
           <Plus className="w-5 h-5" /> Add Supplier
@@ -505,24 +560,24 @@ function SuppliersView({
                       {s.name.charAt(0).toUpperCase()}
                     </div>
                     <div className="min-w-0">
-                      <h3 className="font-semibold text-slate-900 dark:text-white truncate">
-                        {s.name}
-                      </h3>
-                      <span
-                        className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full mt-0.5 ${
-                          SUPPLIER_TYPE_COLORS[s.type]
-                        }`}
-                      >
-                        {s.type}
-                      </span>
+                      <h3 className="font-semibold text-slate-900 dark:text-white truncate">{s.name}</h3>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {s.types.map(t => (
+                          <span key={t} className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full ${SUPPLIER_TYPE_COLORS[t]}`}>
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                      {!s.active && (
+                        <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-zinc-700 text-slate-500 dark:text-slate-400 uppercase mt-1">
+                          Inactive
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
-                      onClick={() => {
-                        setEditing(s);
-                        setShowForm(true);
-                      }}
+                      onClick={() => { setEditing(s); setShowForm(true); }}
                       className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
                       title="Edit"
                     >
@@ -556,21 +611,9 @@ function SuppliersView({
                       ₹{(k?.billed ?? 0).toFixed(0)}
                     </p>
                   </div>
-                  <div
-                    className={`flex-1 rounded-lg px-3 py-2 ${
-                      due > 0
-                        ? 'bg-red-50 dark:bg-red-950/40'
-                        : 'bg-emerald-50 dark:bg-emerald-950/40'
-                    }`}
-                  >
+                  <div className={`flex-1 rounded-lg px-3 py-2 ${due > 0 ? 'bg-red-50 dark:bg-red-950/40' : 'bg-emerald-50 dark:bg-emerald-950/40'}`}>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Net Due</p>
-                    <p
-                      className={`font-bold text-sm ${
-                        due > 0
-                          ? 'text-red-600 dark:text-red-400'
-                          : 'text-emerald-600 dark:text-emerald-400'
-                      }`}
-                    >
+                    <p className={`font-bold text-sm ${due > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                       ₹{due.toFixed(0)}
                     </p>
                   </div>
@@ -614,43 +657,51 @@ function SuppliersView({
 }
 
 function SupplierFormModal({
-  supplier,
-  onClose,
-  onSave,
+  supplier, onClose, onSave,
 }: {
   supplier: Supplier | null;
   onClose: () => void;
   onSave: (input: SupplierInput) => Promise<void>;
 }) {
   const [name, setName] = useState(supplier?.name ?? '');
-  const [type, setType] = useState<SupplierType>(supplier?.type ?? 'Brick');
+  const [types, setTypes] = useState<SupplierType[]>(supplier?.types ?? ['Brick']);
   const [contactName, setContactName] = useState(supplier?.contactName ?? '');
   const [phone, setPhone] = useState(supplier?.phone ?? '');
   const [address, setAddress] = useState(supplier?.address ?? '');
   const [gstin, setGstin] = useState(supplier?.gstin ?? '');
   const [notes, setNotes] = useState(supplier?.notes ?? '');
+  const [active, setActive] = useState(supplier?.active ?? true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+    if (types.length === 0) {
+      setError('Please select at least one material type.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
       await onSave({
         name: name.trim(),
-        type,
+        types,
         contactName: contactName.trim(),
         phone: phone.trim(),
         address: address.trim(),
         gstin: gstin.trim(),
         notes: notes.trim(),
+        active,
       });
     } catch (err) {
       setError((err as Error).message);
       setSaving(false);
     }
+  };
+
+  const toggleType = (t: SupplierType) => {
+    setTypes(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
   };
 
   return (
@@ -685,18 +736,26 @@ function SupplierFormModal({
             />
           </Field>
 
-          <Field label="Type" required>
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value as SupplierType)}
-              className={inputCls}
-            >
-              {SUPPLIER_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
+          <Field label="Materials Supplied" required>
+            <div className="flex flex-wrap gap-2">
+              {SUPPLIER_TYPES.map((t) => {
+                const isActive = types.includes(t);
+                return (
+                  <button
+                    type="button"
+                    key={t}
+                    onClick={() => toggleType(t)}
+                    className={`px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors ${
+                      isActive
+                        ? 'bg-amber-400 text-slate-900 border-amber-400'
+                        : 'bg-slate-50 dark:bg-zinc-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-zinc-700'
+                    }`}
+                  >
+                    {t}
+                  </button>
+                );
+              })}
+            </div>
           </Field>
 
           <div className="grid grid-cols-2 gap-3">
@@ -746,6 +805,17 @@ function SupplierFormModal({
             />
           </Field>
 
+          <Field label="Status">
+            <select
+              value={active ? 'active' : 'inactive'}
+              onChange={(e) => setActive(e.target.value === 'active')}
+              className={inputCls}
+            >
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </Field>
+
           {error && (
             <p className="text-red-600 dark:text-red-400 text-sm bg-red-50 dark:bg-red-950/40 rounded-lg p-3">
               {error}
@@ -754,7 +824,7 @@ function SupplierFormModal({
 
           <button
             type="submit"
-            disabled={saving || !name.trim()}
+            disabled={saving || !name.trim() || types.length === 0}
             className="w-full py-3 bg-slate-900 dark:bg-amber-400 text-white dark:text-slate-900 font-bold rounded-xl hover:bg-slate-800 dark:hover:bg-amber-300 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 active:scale-[0.98]"
           >
             {saving && <Loader2 className="w-5 h-5 animate-spin" />}
@@ -771,15 +841,8 @@ function SupplierFormModal({
 /* ------------------------------------------------------------------ */
 
 function DeliveriesView({
-  deliveries,
-  suppliers,
-  supplierById,
-  sites,
-  siteName,
-  loading,
-  onAdd,
-  onDelete,
-  showToast,
+  deliveries, suppliers, supplierById, sites, siteName, loading, error,
+  onAdd, onDelete, showToast,
 }: {
   deliveries: MaterialDelivery[];
   suppliers: Supplier[];
@@ -787,6 +850,7 @@ function DeliveriesView({
   sites: { id: string; name: string }[];
   siteName: Map<string, string>;
   loading: boolean;
+  error: string | null;
   onAdd: (
     input: Parameters<ReturnType<typeof useMaterialDeliveries>['addDelivery']>[0],
     supplierName?: string
@@ -816,18 +880,8 @@ function DeliveriesView({
 
   const exportCSV = () => {
     const headers = [
-      'Date',
-      'Supplier',
-      'Material',
-      'Quantity',
-      'Unit',
-      'Trucks',
-      'Rate/Unit',
-      'Bill Amount',
-      'Driver Paid',
-      'Bill #',
-      'Site',
-      'Remark',
+      'Date', 'Supplier', 'Material', 'Quantity', 'Unit', 'Trucks',
+      'Rate/Unit', 'Bill Amount', 'Driver Paid', 'Bill #', 'Site', 'Remark',
     ];
     const rows = filtered.map((d) => [
       d.date,
@@ -863,6 +917,8 @@ function DeliveriesView({
 
   return (
     <div>
+      <ErrorBanner message={error} />
+
       <div className="flex flex-col sm:flex-row gap-3 mb-4 flex-wrap">
         <select
           value={supplierFilter}
@@ -871,9 +927,7 @@ function DeliveriesView({
         >
           <option value="all">All Suppliers</option>
           {suppliers.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
+            <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>
         <input
@@ -912,25 +966,19 @@ function DeliveriesView({
             <p className="text-lg font-bold text-orange-600 dark:text-orange-400 leading-none">
               ₹{filteredTotalBilled.toFixed(0)}
             </p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-1">
-              Billed
-            </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-1">Billed</p>
           </div>
           <div className="bg-emerald-50 dark:bg-emerald-950/40 rounded-xl p-3 text-center">
             <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400 leading-none">
               ₹{filteredTotalDriver.toFixed(0)}
             </p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-1">
-              Driver Paid
-            </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-1">Driver Paid</p>
           </div>
           <div className="bg-blue-50 dark:bg-blue-950/40 rounded-xl p-3 text-center">
             <p className="text-lg font-bold text-blue-600 dark:text-blue-400 leading-none">
               {filteredTrucks}
             </p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-1">
-              Truck Loads
-            </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-1">Truck Loads</p>
           </div>
         </div>
       )}
@@ -954,21 +1002,11 @@ function DeliveriesView({
             <table className="w-full">
               <thead>
                 <tr className="bg-slate-50 dark:bg-zinc-800 border-b border-slate-200 dark:border-zinc-700">
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
-                    Date
-                  </th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
-                    Supplier / Material
-                  </th>
-                  <th className="text-right px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider hidden md:table-cell">
-                    Qty
-                  </th>
-                  <th className="text-right px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
-                    Bill
-                  </th>
-                  <th className="text-right px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
-                    Driver Paid
-                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Date</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Supplier / Material</th>
+                  <th className="text-right px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider hidden md:table-cell">Qty</th>
+                  <th className="text-right px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Bill</th>
+                  <th className="text-right px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Driver Paid</th>
                   <th className="px-2"></th>
                 </tr>
               </thead>
@@ -976,15 +1014,10 @@ function DeliveriesView({
                 {filtered.map((d) => {
                   const sup = supplierById.get(d.supplierId);
                   return (
-                    <tr
-                      key={d.id}
-                      className="border-b border-slate-100 dark:border-zinc-800 hover:bg-slate-50/60 dark:hover:bg-zinc-800/40 transition-colors"
-                    >
+                    <tr key={d.id} className="border-b border-slate-100 dark:border-zinc-800 hover:bg-slate-50/60 dark:hover:bg-zinc-800/40 transition-colors">
                       <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
                         {new Date(d.date + 'T00:00:00').toLocaleDateString('en-IN', {
-                          day: '2-digit',
-                          month: 'short',
-                          year: '2-digit',
+                          day: '2-digit', month: 'short', year: '2-digit',
                         })}
                       </td>
                       <td className="px-3 py-3">
@@ -1046,9 +1079,7 @@ function DeliveriesView({
         title="Delete Delivery?"
         message={
           pendingDelete
-            ? `Delete this ₹${pendingDelete.billAmount.toFixed(
-                0
-              )} delivery? Any Site Ledger entry created from it will remain in place — you must remove it separately if needed.`
+            ? `Delete this ₹${pendingDelete.billAmount.toFixed(0)} delivery? Any Site Ledger entry created from it will remain in place — you must remove it separately if needed.`
             : ''
         }
         confirmLabel="Delete"
@@ -1063,10 +1094,7 @@ function DeliveriesView({
 }
 
 function DeliveryFormModal({
-  suppliers,
-  sites,
-  onClose,
-  onSave,
+  suppliers, sites, onClose, onSave,
 }: {
   suppliers: Supplier[];
   sites: { id: string; name: string }[];
@@ -1091,10 +1119,24 @@ function DeliveryFormModal({
   const [logToSite, setLogToSite] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Auto-compute bill amount whenever qty × rate changes, unless the user has
-  // manually edited the bill field. `billManuallyEdited` tracks that intent.
   const [billManuallyEdited, setBillManuallyEdited] = useState(false);
+
+  const selectedSupplier = suppliers.find((s) => s.id === supplierId);
+  const availableMaterials = selectedSupplier?.types?.length
+    ? selectedSupplier.types
+    : COMMON_MATERIALS;
+
+  useEffect(() => {
+    if (!supplierId && suppliers.length > 0) {
+      setSupplierId(suppliers[0].id);
+    }
+  }, [suppliers, supplierId]);
+
+  useEffect(() => {
+    if (availableMaterials.length > 0 && !availableMaterials.includes(materialType as any)) {
+      setMaterialType(availableMaterials[0]);
+    }
+  }, [supplierId, availableMaterials]);
 
   useEffect(() => {
     if (billManuallyEdited) return;
@@ -1159,9 +1201,7 @@ function DeliveryFormModal({
             <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-blue-100 dark:bg-blue-950/40">
               <Truck className="w-5 h-5 text-blue-600 dark:text-blue-400" />
             </div>
-            <h2 className="text-base font-bold text-slate-900 dark:text-white">
-              Log Material Delivery
-            </h2>
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">Log Material Delivery</h2>
           </div>
           <button
             onClick={onClose}
@@ -1174,17 +1214,17 @@ function DeliveryFormModal({
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <Field label="Supplier" required>
-              <select
+              <CustomSelect
                 value={supplierId}
-                onChange={(e) => setSupplierId(e.target.value)}
-                className={inputCls}
-              >
-                {suppliers.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} · {s.type}
-                  </option>
-                ))}
-              </select>
+                onChange={setSupplierId}
+                options={suppliers.map((s) => s.id)}
+                placeholder="Select supplier..."
+                renderValue={(val: string) => suppliers.find((s) => s.id === val)?.name || ''}
+                renderOption={(opt: string) => {
+                  const s = suppliers.find((x) => x.id === opt);
+                  return s ? `${s.name} (${s.types.join(', ')})` : opt;
+                }}
+              />
             </Field>
             <Field label="Delivery Date" required>
               <input
@@ -1199,18 +1239,12 @@ function DeliveryFormModal({
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Material" required>
-              <input
-                list="common-materials"
+              <CustomSelect
                 value={materialType}
-                onChange={(e) => setMaterialType(e.target.value)}
-                className={inputCls}
-                placeholder="e.g. Bricks"
+                onChange={setMaterialType}
+                options={availableMaterials as string[]}
+                placeholder="Select material..."
               />
-              <datalist id="common-materials">
-                {COMMON_MATERIALS.map((m) => (
-                  <option key={m} value={m} />
-                ))}
-              </datalist>
             </Field>
             <Field label="Bill / Challan Number">
               <input
@@ -1225,37 +1259,25 @@ function DeliveryFormModal({
           <div className="grid grid-cols-3 gap-3">
             <Field label="Quantity">
               <input
-                type="number"
-                step="0.01"
-                min="0"
+                type="number" step="0.01" min="0"
                 value={quantity}
                 onChange={(e) => setQuantity(e.target.value)}
-                className={inputCls}
-                placeholder="0"
+                className={inputCls} placeholder="0"
               />
             </Field>
             <Field label="Unit">
-              <select
+              <CustomSelect
                 value={unit}
-                onChange={(e) => setUnit(e.target.value as MaterialUnit)}
-                className={inputCls}
-              >
-                {MATERIAL_UNITS.map((u) => (
-                  <option key={u} value={u}>
-                    {u}
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setUnit(val as MaterialUnit)}
+                options={MATERIAL_UNITS}
+              />
             </Field>
             <Field label="Truck Count">
               <input
-                type="number"
-                step="1"
-                min="0"
+                type="number" step="1" min="0"
                 value={truckCount}
                 onChange={(e) => setTruckCount(e.target.value)}
-                className={inputCls}
-                placeholder="0"
+                className={inputCls} placeholder="0"
               />
             </Field>
           </div>
@@ -1263,56 +1285,38 @@ function DeliveryFormModal({
           <div className="grid grid-cols-3 gap-3">
             <Field label="Rate / Unit (₹)">
               <input
-                type="number"
-                step="0.01"
-                min="0"
+                type="number" step="0.01" min="0"
                 value={ratePerUnit}
                 onChange={(e) => setRatePerUnit(e.target.value)}
-                className={inputCls}
-                placeholder="0"
+                className={inputCls} placeholder="0"
               />
             </Field>
             <Field label="Bill Amount (₹)" required>
               <input
-                required
-                type="number"
-                step="0.01"
-                min="0"
+                required type="number" step="0.01" min="0"
                 value={billAmount}
-                onChange={(e) => {
-                  setBillAmount(e.target.value);
-                  setBillManuallyEdited(true);
-                }}
-                className={inputCls}
-                placeholder="0"
+                onChange={(e) => { setBillAmount(e.target.value); setBillManuallyEdited(true); }}
+                className={inputCls} placeholder="0"
               />
             </Field>
             <Field label="Driver Paid (₹)">
               <input
-                type="number"
-                step="0.01"
-                min="0"
+                type="number" step="0.01" min="0"
                 value={driverPaid}
                 onChange={(e) => setDriverPaid(e.target.value)}
-                className={inputCls}
-                placeholder="0"
+                className={inputCls} placeholder="0"
               />
             </Field>
           </div>
 
           <Field label="Link to Site (optional)">
-            <select
+            <CustomSelect
               value={siteId}
-              onChange={(e) => setSiteId(e.target.value)}
-              className={inputCls}
-            >
-              <option value="">— Not linked to any site —</option>
-              {sites.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+              onChange={setSiteId}
+              options={['', ...sites.map((s) => s.id)]}
+              renderValue={(val: string) => sites.find((s) => s.id === val)?.name || '— Not linked to any site —'}
+              renderOption={(opt: string) => sites.find((s) => s.id === opt)?.name || '— Not linked to any site —'}
+            />
           </Field>
 
           {canBridge && (
@@ -1328,8 +1332,7 @@ function DeliveryFormModal({
                   Also log ₹{driverPaidNum.toFixed(0)} driver payment to site ledger
                 </p>
                 <p className="text-amber-700/80 dark:text-amber-400/80 mt-0.5">
-                  Creates a debit entry under "Material - {materialType || 'Material'}" for the
-                  selected site.
+                  Creates a debit entry under "Material - {materialType || 'Material'}" for the selected site.
                 </p>
               </div>
             </label>
@@ -1372,38 +1375,20 @@ const COMMISSION_STATUS_STYLE: Record<
   Commission['status'],
   { label: string; bg: string; text: string }
 > = {
-  pending: {
-    label: 'Pending',
-    bg: 'bg-amber-100 dark:bg-amber-950/40',
-    text: 'text-amber-700 dark:text-amber-400',
-  },
-  partial: {
-    label: 'Partial',
-    bg: 'bg-blue-100 dark:bg-blue-950/40',
-    text: 'text-blue-700 dark:text-blue-400',
-  },
-  received: {
-    label: 'Received',
-    bg: 'bg-emerald-100 dark:bg-emerald-950/40',
-    text: 'text-emerald-700 dark:text-emerald-400',
-  },
+  pending: { label: 'Pending', bg: 'bg-amber-100 dark:bg-amber-950/40', text: 'text-amber-700 dark:text-amber-400' },
+  partial: { label: 'Partial', bg: 'bg-blue-100 dark:bg-blue-950/40', text: 'text-blue-700 dark:text-blue-400' },
+  received: { label: 'Received', bg: 'bg-emerald-100 dark:bg-emerald-950/40', text: 'text-emerald-700 dark:text-emerald-400' },
 };
 
 function CommissionsView({
-  commissions,
-  suppliers,
-  supplierById,
-  loading,
-  onAdd,
-  onRecordReceipt,
-  onResetReceipt,
-  onDelete,
-  showToast,
+  commissions, suppliers, supplierById, loading, error,
+  onAdd, onRecordReceipt, onResetReceipt, onDelete, showToast,
 }: {
   commissions: Commission[];
   suppliers: Supplier[];
   supplierById: Map<string, Supplier>;
   loading: boolean;
+  error: string | null;
   onAdd: (input: Parameters<ReturnType<typeof useCommissions>['addCommission']>[0]) => Promise<void>;
   onRecordReceipt: (id: string, amount: number, date: string) => Promise<void>;
   onResetReceipt: (id: string) => Promise<void>;
@@ -1441,6 +1426,8 @@ function CommissionsView({
 
   return (
     <div>
+      <ErrorBanner message={error} />
+
       <div className="flex flex-col sm:flex-row gap-3 mb-4 flex-wrap">
         <select
           value={statusFilter}
@@ -1459,9 +1446,7 @@ function CommissionsView({
         >
           <option value="all">All Suppliers</option>
           {suppliers.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
+            <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>
         <div className="flex-1" />
@@ -1495,10 +1480,7 @@ function CommissionsView({
             const style = COMMISSION_STATUS_STYLE[c.status];
             const remaining = Math.max(0, c.amount - c.receivedAmount);
             return (
-              <div
-                key={c.id}
-                className="bg-white dark:bg-zinc-900 rounded-2xl p-4 border border-slate-200 dark:border-zinc-800 group"
-              >
+              <div key={c.id} className="bg-white dark:bg-zinc-900 rounded-2xl p-4 border border-slate-200 dark:border-zinc-800 group">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3 min-w-0 flex-1">
                     <div className="w-10 h-10 bg-purple-100 dark:bg-purple-950/40 rounded-xl flex items-center justify-center shrink-0">
@@ -1509,9 +1491,7 @@ function CommissionsView({
                         <p className="font-semibold text-slate-900 dark:text-white truncate">
                           {sup?.name ?? 'Unknown supplier'}
                         </p>
-                        <span
-                          className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full ${style.bg} ${style.text}`}
-                        >
+                        <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full ${style.bg} ${style.text}`}>
                           {style.label}
                         </span>
                       </div>
@@ -1519,15 +1499,11 @@ function CommissionsView({
                         {c.materialType} · {c.quantity} {c.unit || 'units'} @ ₹
                         {c.ratePerUnit.toFixed(2)}/{c.unit || 'unit'} ·{' '}
                         {new Date(c.date + 'T00:00:00').toLocaleDateString('en-IN', {
-                          day: 'numeric',
-                          month: 'short',
-                          year: '2-digit',
+                          day: 'numeric', month: 'short', year: '2-digit',
                         })}
                       </p>
                       {c.remark && (
-                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 truncate">
-                          {c.remark}
-                        </p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 truncate">{c.remark}</p>
                       )}
                     </div>
                   </div>
@@ -1621,9 +1597,7 @@ function CommissionsView({
         title="Delete Commission?"
         message={
           pendingDelete
-            ? `Delete this ₹${pendingDelete.amount.toFixed(0)} commission from "${
-                supplierById.get(pendingDelete.supplierId)?.name ?? 'supplier'
-              }"? This cannot be undone.`
+            ? `Delete this ₹${pendingDelete.amount.toFixed(0)} commission from "${supplierById.get(pendingDelete.supplierId)?.name ?? 'supplier'}"? This cannot be undone.`
             : ''
         }
         confirmLabel="Delete"
@@ -1638,9 +1612,7 @@ function CommissionsView({
 }
 
 function CommissionFormModal({
-  suppliers,
-  onClose,
-  onSave,
+  suppliers, onClose, onSave,
 }: {
   suppliers: Supplier[];
   onClose: () => void;
@@ -1658,6 +1630,23 @@ function CommissionFormModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const selectedSupplier = suppliers.find((s) => s.id === supplierId);
+  const availableMaterials = selectedSupplier?.types?.length
+    ? selectedSupplier.types
+    : COMMON_MATERIALS;
+
+  useEffect(() => {
+    if (!supplierId && suppliers.length > 0) {
+      setSupplierId(suppliers[0].id);
+    }
+  }, [suppliers, supplierId]);
+
+  useEffect(() => {
+    if (availableMaterials.length > 0 && !availableMaterials.includes(materialType as any)) {
+      setMaterialType(availableMaterials[0]);
+    }
+  }, [supplierId, availableMaterials]);
+
   useEffect(() => {
     if (amountManuallyEdited) return;
     const q = parseFloat(quantity) || 0;
@@ -1667,15 +1656,9 @@ function CommissionFormModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supplierId) {
-      setError('Please select a supplier.');
-      return;
-    }
+    if (!supplierId) { setError('Please select a supplier.'); return; }
     const amt = parseFloat(amount) || 0;
-    if (amt <= 0) {
-      setError('Enter a valid commission amount.');
-      return;
-    }
+    if (amt <= 0) { setError('Enter a valid commission amount.'); return; }
     setSaving(true);
     setError(null);
     try {
@@ -1709,9 +1692,7 @@ function CommissionFormModal({
             <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-purple-100 dark:bg-purple-950/40">
               <Percent className="w-5 h-5 text-purple-600 dark:text-purple-400" />
             </div>
-            <h2 className="text-base font-bold text-slate-900 dark:text-white">
-              Add Commission
-            </h2>
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">Add Commission</h2>
           </div>
           <button
             onClick={onClose}
@@ -1724,22 +1705,17 @@ function CommissionFormModal({
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <Field label="Supplier" required>
-              <select
+              <CustomSelect
                 value={supplierId}
-                onChange={(e) => setSupplierId(e.target.value)}
-                className={inputCls}
-              >
-                {suppliers.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+                onChange={setSupplierId}
+                options={suppliers.map((s) => s.id)}
+                renderValue={(val: string) => suppliers.find(s => s.id === val)?.name || ''}
+                renderOption={(opt: string) => suppliers.find(x => x.id === opt)?.name || opt}
+              />
             </Field>
             <Field label="Date" required>
               <input
-                type="date"
-                required
+                type="date" required
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
                 className={inputCls}
@@ -1749,17 +1725,11 @@ function CommissionFormModal({
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Material" required>
-              <input
-                list="common-materials-comm"
+              <CustomSelect
                 value={materialType}
-                onChange={(e) => setMaterialType(e.target.value)}
-                className={inputCls}
+                onChange={setMaterialType}
+                options={availableMaterials as string[]}
               />
-              <datalist id="common-materials-comm">
-                {COMMON_MATERIALS.map((m) => (
-                  <option key={m} value={m} />
-                ))}
-              </datalist>
             </Field>
             <Field label="Unit">
               <input
@@ -1774,39 +1744,26 @@ function CommissionFormModal({
           <div className="grid grid-cols-3 gap-3">
             <Field label="Quantity">
               <input
-                type="number"
-                step="0.01"
-                min="0"
+                type="number" step="0.01" min="0"
                 value={quantity}
                 onChange={(e) => setQuantity(e.target.value)}
-                className={inputCls}
-                placeholder="0"
+                className={inputCls} placeholder="0"
               />
             </Field>
             <Field label="Rate / Unit (₹)">
               <input
-                type="number"
-                step="0.01"
-                min="0"
+                type="number" step="0.01" min="0"
                 value={ratePerUnit}
                 onChange={(e) => setRatePerUnit(e.target.value)}
-                className={inputCls}
-                placeholder="0"
+                className={inputCls} placeholder="0"
               />
             </Field>
             <Field label="Amount (₹)" required>
               <input
-                required
-                type="number"
-                step="0.01"
-                min="0"
+                required type="number" step="0.01" min="0"
                 value={amount}
-                onChange={(e) => {
-                  setAmount(e.target.value);
-                  setAmountManuallyEdited(true);
-                }}
-                className={inputCls}
-                placeholder="0"
+                onChange={(e) => { setAmount(e.target.value); setAmountManuallyEdited(true); }}
+                className={inputCls} placeholder="0"
               />
             </Field>
           </div>
@@ -1841,9 +1798,7 @@ function CommissionFormModal({
 }
 
 function ReceiptModal({
-  commission,
-  onClose,
-  onConfirm,
+  commission, onClose, onConfirm,
 }: {
   commission: Commission;
   onClose: () => void;
@@ -1858,10 +1813,7 @@ function ReceiptModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const amt = parseFloat(amount) || 0;
-    if (amt <= 0) {
-      setError('Enter a positive amount.');
-      return;
-    }
+    if (amt <= 0) { setError('Enter a positive amount.'); return; }
     setSaving(true);
     setError(null);
     try {
@@ -1897,11 +1849,7 @@ function ReceiptModal({
         <form onSubmit={handleSubmit} className="space-y-3">
           <Field label="Amount Received Now (₹)" required>
             <input
-              autoFocus
-              required
-              type="number"
-              step="0.01"
-              min="0"
+              autoFocus required type="number" step="0.01" min="0"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               className={inputCls}
@@ -1909,8 +1857,7 @@ function ReceiptModal({
           </Field>
           <Field label="Receipt Date" required>
             <input
-              type="date"
-              required
+              type="date" required
               value={date}
               onChange={(e) => setDate(e.target.value)}
               className={inputCls}
@@ -1936,19 +1883,12 @@ function ReceiptModal({
 }
 
 /* ------------------------------------------------------------------ */
-/* Khata (passbook + payments)                                         */
+/* Khata                                                               */
 /* ------------------------------------------------------------------ */
 
 function KhataView({
-  suppliers,
-  supplierById,
-  khata,
-  deliveries,
-  payments,
-  loading,
-  onAddPayment,
-  onDeletePayment,
-  showToast,
+  suppliers, supplierById, khata, deliveries, payments, loading,
+  onAddPayment, onDeletePayment, showToast,
 }: {
   suppliers: Supplier[];
   supplierById: Map<string, Supplier>;
@@ -1995,41 +1935,26 @@ function KhataView({
           <table className="w-full">
             <thead>
               <tr className="bg-slate-50 dark:bg-zinc-800 border-b border-slate-200 dark:border-zinc-700">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
-                  Supplier
-                </th>
-                <th className="text-right px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider hidden sm:table-cell">
-                  Deliveries
-                </th>
-                <th className="text-right px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
-                  Total Billed
-                </th>
-                <th className="text-right px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
-                  Total Paid
-                </th>
-                <th className="text-right px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
-                  Net Due
-                </th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Supplier</th>
+                <th className="text-right px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider hidden sm:table-cell">Deliveries</th>
+                <th className="text-right px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Total Billed</th>
+                <th className="text-right px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Total Paid</th>
+                <th className="text-right px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Net Due</th>
                 <th className="px-2"></th>
               </tr>
             </thead>
             <tbody>
               {rows.map(({ supplier, k }) => (
-                <tr
-                  key={supplier.id}
-                  className="border-b border-slate-100 dark:border-zinc-800 hover:bg-slate-50/60 dark:hover:bg-zinc-800/40 transition-colors"
-                >
+                <tr key={supplier.id} className="border-b border-slate-100 dark:border-zinc-800 hover:bg-slate-50/60 dark:hover:bg-zinc-800/40 transition-colors">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 bg-amber-100 dark:bg-amber-900/40 rounded-lg flex items-center justify-center font-bold text-amber-700 dark:text-amber-400 text-sm">
                         {supplier.name.charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
-                          {supplier.name}
-                        </p>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                          {supplier.type}
+                        <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{supplier.name}</p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                          {supplier.types.join(', ')}
                         </p>
                       </div>
                     </div>
@@ -2043,15 +1968,9 @@ function KhataView({
                   <td className="text-right px-3 py-3 text-sm font-semibold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                     ₹{k.paid.toFixed(0)}
                   </td>
-                  <td
-                    className={`text-right px-3 py-3 text-sm font-bold whitespace-nowrap ${
-                      k.due > 0
-                        ? 'text-red-600 dark:text-red-400'
-                        : k.due < 0
-                        ? 'text-blue-600 dark:text-blue-400'
-                        : 'text-slate-500 dark:text-slate-400'
-                    }`}
-                  >
+                  <td className={`text-right px-3 py-3 text-sm font-bold whitespace-nowrap ${
+                    k.due > 0 ? 'text-red-600 dark:text-red-400' : k.due < 0 ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400'
+                  }`}>
                     ₹{k.due.toFixed(0)}
                   </td>
                   <td className="px-2 py-3 text-right">
@@ -2089,23 +2008,14 @@ function KhataView({
 }
 
 function SupplierPassbookModal({
-  supplier,
-  deliveries,
-  payments,
-  onClose,
-  onAddPayment,
-  onDeletePayment,
-  showToast,
+  supplier, deliveries, payments, onClose, onAddPayment, onDeletePayment, showToast,
 }: {
   supplier: Supplier;
   deliveries: MaterialDelivery[];
   payments: ReturnType<typeof useSupplierPayments>['payments'];
   onClose: () => void;
   onAddPayment: (
-    input: Omit<
-      Parameters<ReturnType<typeof useSupplierPayments>['addPayment']>[0],
-      'supplierId'
-    >
+    input: Omit<Parameters<ReturnType<typeof useSupplierPayments>['addPayment']>[0], 'supplierId'>
   ) => Promise<void>;
   onDeletePayment: (id: string) => Promise<void>;
   showToast: (msg: string, type: 'saved' | 'error') => void;
@@ -2122,23 +2032,15 @@ function SupplierPassbookModal({
     const rows: Row[] = [];
     deliveries.forEach((d) =>
       rows.push({
-        kind: 'delivery',
-        id: d.id,
-        date: d.date,
-        amount: d.billAmount,
+        kind: 'delivery', id: d.id, date: d.date, amount: d.billAmount,
         label: d.materialType,
-        sub: `${d.quantity} ${d.unit}${d.truckCount ? ` · ${d.truckCount} truck${d.truckCount > 1 ? 's' : ''}` : ''}${
-          d.billNumber ? ` · #${d.billNumber}` : ''
-        }`,
+        sub: `${d.quantity} ${d.unit}${d.truckCount ? ` · ${d.truckCount} truck${d.truckCount > 1 ? 's' : ''}` : ''}${d.billNumber ? ` · #${d.billNumber}` : ''}`,
         createdAt: d.createdAt,
       })
     );
     payments.forEach((p) =>
       rows.push({
-        kind: 'payment',
-        id: p.id,
-        date: p.date,
-        amount: p.amount,
+        kind: 'payment', id: p.id, date: p.date, amount: p.amount,
         label: `${p.paymentMode}${p.reference ? ` · ${p.reference}` : ''}`,
         sub: p.remark || 'Payment to supplier',
         createdAt: p.createdAt,
@@ -2146,8 +2048,7 @@ function SupplierPassbookModal({
     );
     rows.sort((a, b) => {
       const c = a.date.localeCompare(b.date);
-      if (c !== 0) return c;
-      return a.createdAt - b.createdAt;
+      return c !== 0 ? c : a.createdAt - b.createdAt;
     });
 
     let running = 0;
@@ -2192,10 +2093,10 @@ function SupplierPassbookModal({
               {supplier.name.charAt(0).toUpperCase()}
             </div>
             <div className="min-w-0">
-              <h2 className="text-base font-bold text-slate-900 dark:text-white truncate">
-                {supplier.name}
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">{supplier.type} Khata</p>
+              <h2 className="text-base font-bold text-slate-900 dark:text-white truncate">{supplier.name}</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                {supplier.types.join(', ')} Khata
+              </p>
             </div>
           </div>
           <button
@@ -2207,45 +2108,20 @@ function SupplierPassbookModal({
         </div>
 
         <div className="p-5 space-y-5">
-          {/* Totals */}
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-orange-50 dark:bg-orange-950/30 rounded-xl p-3 text-center">
-              <p className="text-lg font-bold text-orange-600 dark:text-orange-400 leading-none">
-                ₹{totalBilled.toFixed(0)}
-              </p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-1">
-                Total Billed
-              </p>
+              <p className="text-lg font-bold text-orange-600 dark:text-orange-400 leading-none">₹{totalBilled.toFixed(0)}</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-1">Total Billed</p>
             </div>
             <div className="bg-emerald-50 dark:bg-emerald-950/30 rounded-xl p-3 text-center">
-              <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400 leading-none">
-                ₹{totalPaid.toFixed(0)}
-              </p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-1">
-                Total Paid
-              </p>
+              <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400 leading-none">₹{totalPaid.toFixed(0)}</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-1">Total Paid</p>
             </div>
-            <div
-              className={`rounded-xl p-3 text-center ${
-                netDue > 0
-                  ? 'bg-red-500 dark:bg-red-600'
-                  : netDue < 0
-                  ? 'bg-blue-500 dark:bg-blue-600'
-                  : 'bg-slate-200 dark:bg-zinc-700'
-              }`}
-            >
-              <p
-                className={`text-lg font-bold leading-none ${
-                  netDue !== 0 ? 'text-white' : 'text-slate-700 dark:text-slate-200'
-                }`}
-              >
+            <div className={`rounded-xl p-3 text-center ${netDue > 0 ? 'bg-red-500 dark:bg-red-600' : netDue < 0 ? 'bg-blue-500 dark:bg-blue-600' : 'bg-slate-200 dark:bg-zinc-700'}`}>
+              <p className={`text-lg font-bold leading-none ${netDue !== 0 ? 'text-white' : 'text-slate-700 dark:text-slate-200'}`}>
                 ₹{Math.abs(netDue).toFixed(0)}
               </p>
-              <p
-                className={`text-[11px] font-semibold mt-1 ${
-                  netDue !== 0 ? 'text-white/90' : 'text-slate-500 dark:text-slate-400'
-                }`}
-              >
+              <p className={`text-[11px] font-semibold mt-1 ${netDue !== 0 ? 'text-white/90' : 'text-slate-500 dark:text-slate-400'}`}>
                 {netDue > 0 ? 'Net Due' : netDue < 0 ? 'Advance Paid' : 'Settled'}
               </p>
             </div>
@@ -2260,7 +2136,6 @@ function SupplierPassbookModal({
             </button>
           </div>
 
-          {/* Timeline */}
           {timeline.length === 0 ? (
             <p className="text-center py-8 text-slate-400 dark:text-slate-500 text-sm">
               No transactions yet for this supplier.
@@ -2273,13 +2148,9 @@ function SupplierPassbookModal({
                   className="flex items-center justify-between bg-slate-50 dark:bg-zinc-800/50 rounded-xl p-3 group"
                 >
                   <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <div
-                      className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
-                        row.kind === 'delivery'
-                          ? 'bg-orange-100 dark:bg-orange-950/40'
-                          : 'bg-emerald-100 dark:bg-emerald-950/40'
-                      }`}
-                    >
+                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                      row.kind === 'delivery' ? 'bg-orange-100 dark:bg-orange-950/40' : 'bg-emerald-100 dark:bg-emerald-950/40'
+                    }`}>
                       {row.kind === 'delivery' ? (
                         <Truck className="w-4 h-4 text-orange-600 dark:text-orange-400" />
                       ) : (
@@ -2287,27 +2158,18 @@ function SupplierPassbookModal({
                       )}
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
-                        {row.label}
-                      </p>
+                      <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{row.label}</p>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                         {new Date(row.date + 'T00:00:00').toLocaleDateString('en-IN', {
-                          day: 'numeric',
-                          month: 'short',
-                          year: '2-digit',
-                        })}{' '}
-                        · {row.sub}
+                          day: 'numeric', month: 'short', year: '2-digit',
+                        })}{' '}· {row.sub}
                       </p>
                     </div>
                   </div>
                   <div className="text-right shrink-0 ml-3">
-                    <p
-                      className={`text-sm font-bold whitespace-nowrap ${
-                        row.kind === 'delivery'
-                          ? 'text-orange-600 dark:text-orange-400'
-                          : 'text-emerald-600 dark:text-emerald-400'
-                      }`}
-                    >
+                    <p className={`text-sm font-bold whitespace-nowrap ${
+                      row.kind === 'delivery' ? 'text-orange-600 dark:text-orange-400' : 'text-emerald-600 dark:text-emerald-400'
+                    }`}>
                       {row.kind === 'delivery' ? '+' : '−'}₹{row.amount.toFixed(0)}
                     </p>
                     <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
@@ -2356,8 +2218,7 @@ function SupplierPassbookModal({
 }
 
 function PaymentFormModal({
-  onClose,
-  onSave,
+  onClose, onSave,
 }: {
   onClose: () => void;
   onSave: (input: {
@@ -2379,19 +2240,13 @@ function PaymentFormModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const amt = parseFloat(amount) || 0;
-    if (amt <= 0) {
-      setError('Enter a positive amount.');
-      return;
-    }
+    if (amt <= 0) { setError('Enter a positive amount.'); return; }
     setSaving(true);
     setError(null);
     try {
       await onSave({
-        date,
-        amount: amt,
-        paymentMode,
-        reference: reference.trim(),
-        remark: remark.trim(),
+        date, amount: amt, paymentMode,
+        reference: reference.trim(), remark: remark.trim(),
       });
     } catch (err) {
       setError((err as Error).message);
@@ -2420,21 +2275,15 @@ function PaymentFormModal({
         <form onSubmit={handleSubmit} className="space-y-3">
           <Field label="Amount (₹)" required>
             <input
-              autoFocus
-              required
-              type="number"
-              step="0.01"
-              min="0"
+              autoFocus required type="number" step="0.01" min="0"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              className={inputCls}
-              placeholder="0"
+              className={inputCls} placeholder="0"
             />
           </Field>
           <Field label="Date" required>
             <input
-              type="date"
-              required
+              type="date" required
               value={date}
               onChange={(e) => setDate(e.target.value)}
               className={inputCls}

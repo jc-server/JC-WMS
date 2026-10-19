@@ -55,6 +55,17 @@ function deliveriesPath(user: string) {
   return collection(db, 'users', user, 'deliveries');
 }
 
+/**
+ * Truncate a category label to the rule-mandated limit (100 chars for
+ * `validTransaction`). The bridge entry is `Material - ${materialType}` and
+ * `materialType` can be 60 chars, so we guard here defensively — a longer
+ * string would make the whole writeBatch fail and the delivery would be lost.
+ */
+function bridgeCategory(materialType: string): string {
+  const label = `Material - ${materialType}`.slice(0, 100);
+  return label.length > 0 ? label : 'Material';
+}
+
 export function useMaterialDeliveries() {
   const { user } = useAuth();
   const [deliveries, setDeliveries] = useState<MaterialDelivery[]>([]);
@@ -130,15 +141,19 @@ export function useMaterialDeliveries() {
         const txRef = doc(
           collection(db, 'users', uid, 'sites', payload.siteId, 'transactions')
         );
+        // remark is capped at 500 chars in the rules — trim defensively.
+        const remark = (
+          `Driver paid${supplierName ? ` · ${supplierName}` : ''}` +
+          `${payload.billNumber ? ` · Bill #${payload.billNumber}` : ''}`
+        ).slice(0, 500);
+
         batch.set(txRef, {
           type: 'debit',
           amount: payload.driverPaid,
           date: payload.date,
-          category: `Material - ${payload.materialType}`,
+          category: bridgeCategory(payload.materialType),
           paymentMode: 'Cash',
-          remark: `Driver paid${supplierName ? ` · ${supplierName}` : ''}${
-            payload.billNumber ? ` · Bill #${payload.billNumber}` : ''
-          }`,
+          remark,
           createdAt: Date.now(),
         });
       }
@@ -155,11 +170,6 @@ export function useMaterialDeliveries() {
     [user]
   );
 
-  /**
-   * Updates an existing delivery's fields. Does NOT touch the site ledger
-   * bridge — if you need to alter the linked transaction, delete and
-   * recreate the delivery, or edit the site transaction separately.
-   */
   const updateDelivery = useCallback(
     async (id: string, updates: MaterialDeliveryUpdate) => {
       if (!user) throw new Error('Not signed in.');

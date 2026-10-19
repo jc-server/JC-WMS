@@ -66,6 +66,19 @@ export function useRoles() {
     async (oldName: string, newName: string) => {
       const trimmed = newName.trim();
       if (!trimmed) return;
+      if (trimmed === oldName) return;
+
+      // Reject renames that would collide with another existing role —
+      // duplicates break ManageRolesModal (duplicate React keys) and make
+      // the workers' role values ambiguous.
+      const lower = trimmed.toLowerCase();
+      const collision = roles.some(
+        (r) => r !== oldName && r.toLowerCase() === lower
+      );
+      if (collision) {
+        throw new Error(`A role named "${trimmed}" already exists.`);
+      }
+
       const next = roles.map((r) => (r === oldName ? trimmed : r));
       setRoles(next);
       await saveRoles(next);

@@ -1,10 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   HandCoins, Plus, X, Search, Pencil, Trash2, Loader2, Download,
-  Wallet, CalendarDays, Filter, Phone, Building2, Loader,
+  Wallet, CalendarDays, Filter, Phone, Building2,
 } from 'lucide-react';
 
 import ConfirmDialog from '@/components/ConfirmDialog';
+import { CustomSelect } from '@/components/CustomSelect';
 import { useSites } from '@/hooks/useSites';
 import {
   useContractors,
@@ -33,6 +34,7 @@ export default function ContractorPayments() {
   const {
     contractors,
     loading: contractorsLoading,
+    error: contractorsError,
     addContractor,
     updateContractor,
     deleteContractor,
@@ -40,6 +42,7 @@ export default function ContractorPayments() {
   const {
     payments,
     loading: paymentsLoading,
+    error: paymentsError,
     addPayment,
     deletePayment,
   } = useContractorPayments();
@@ -104,13 +107,11 @@ export default function ContractorPayments() {
         </div>
       )}
 
-      {/* Header */}
       <div className="flex items-center gap-2 mb-4">
         <HandCoins className="w-5 h-5 text-amber-500" />
         <h2 className="text-lg font-bold text-slate-900 dark:text-white">Contractor Payments</h2>
       </div>
 
-      {/* Summary ribbon */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 mb-5">
         <SummaryTile
           icon={Building2}
@@ -158,7 +159,6 @@ export default function ContractorPayments() {
         />
       </div>
 
-      {/* Sub-tab nav */}
       <div className="flex gap-1 mb-5 overflow-x-auto">
         {subTabs.map((t) => {
           const Icon = t.icon;
@@ -199,6 +199,7 @@ export default function ContractorPayments() {
           sites={sites}
           siteName={siteName}
           loading={paymentsLoading}
+          error={paymentsError}
           onAdd={addPayment}
           onDelete={deletePayment}
           showToast={showToast}
@@ -209,6 +210,7 @@ export default function ContractorPayments() {
           contractors={contractors}
           payments={payments}
           loading={contractorsLoading}
+          error={contractorsError}
           onAdd={addContractor}
           onUpdate={updateContractor}
           onDelete={deleteContractor}
@@ -221,6 +223,7 @@ export default function ContractorPayments() {
           payments={payments}
           contractorById={contractorById}
           loading={contractorsLoading || paymentsLoading}
+          error={paymentsError ?? contractorsError}
         />
       )}
     </div>
@@ -251,6 +254,15 @@ function SummaryTile({
   );
 }
 
+function ErrorBanner({ message }: { message: string | null }) {
+  if (!message) return null;
+  return (
+    <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 rounded-xl p-3 mb-4 text-sm">
+      Could not load data: {message}
+    </div>
+  );
+}
+
 const inputCls =
   'w-full px-4 py-3 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all text-sm';
 
@@ -276,7 +288,7 @@ function Field({
 /* ------------------------------------------------------------------ */
 
 function PaymentsView({
-  payments, contractors, contractorById, sites, siteName, loading,
+  payments, contractors, contractorById, sites, siteName, loading, error,
   onAdd, onDelete, showToast,
 }: {
   payments: ContractorPayment[];
@@ -285,6 +297,7 @@ function PaymentsView({
   sites: { id: string; name: string }[];
   siteName: Map<string, string>;
   loading: boolean;
+  error: string | null;
   onAdd: (
     input: Parameters<ReturnType<typeof useContractorPayments>['addPayment']>[0],
     meta?: { contractorName?: string; trade?: string }
@@ -354,27 +367,27 @@ function PaymentsView({
 
   return (
     <div>
+      <ErrorBanner message={error} />
+
       <div className="flex flex-col sm:flex-row gap-3 mb-4 flex-wrap">
-        <select
+        <CustomSelect
           value={contractorFilter}
-          onChange={(e) => setContractorFilter(e.target.value)}
-          className="px-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none text-slate-900 dark:text-white font-medium text-sm"
-        >
-          <option value="all">All Contractors</option>
-          {contractors.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
-        <select
+          onChange={setContractorFilter}
+          options={[
+            { value: 'all', label: 'All Contractors' },
+            ...contractors.map((c) => ({ value: c.id, label: c.name })),
+          ]}
+          className="min-w-[180px]"
+        />
+        <CustomSelect
           value={tradeFilter}
-          onChange={(e) => setTradeFilter(e.target.value as 'all' | ContractorTrade)}
-          className="px-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none text-slate-900 dark:text-white font-medium text-sm"
-        >
-          <option value="all">All Trades</option>
-          {CONTRACTOR_TRADES.map((t) => (
-            <option key={t} value={t}>{t}</option>
-          ))}
-        </select>
+          onChange={(val) => setTradeFilter(val as 'all' | ContractorTrade)}
+          options={[
+            { value: 'all', label: 'All Trades' },
+            ...CONTRACTOR_TRADES.map((t) => ({ value: t, label: t })),
+          ]}
+          className="min-w-[150px]"
+        />
         <input
           type="date"
           value={fromDate}
@@ -566,6 +579,12 @@ function PaymentFormModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!contractorId && contractors.length > 0) {
+      setContractorId(contractors[0].id);
+    }
+  }, [contractors, contractorId]);
+
   const amtNum = parseFloat(amount) || 0;
   const canBridge = Boolean(siteId) && amtNum > 0;
 
@@ -630,17 +649,11 @@ function PaymentFormModal({
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <Field label="Contractor" required>
-              <select
+              <CustomSelect
                 value={contractorId}
-                onChange={(e) => setContractorId(e.target.value)}
-                className={inputCls}
-              >
-                {contractors.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} · {c.trade}
-                  </option>
-                ))}
-              </select>
+                onChange={setContractorId}
+                options={contractors.map((c) => ({ value: c.id, label: `${c.name} · ${c.trade}` }))}
+              />
             </Field>
             <Field label="Payment Date" required>
               <input
@@ -668,15 +681,11 @@ function PaymentFormModal({
               />
             </Field>
             <Field label="Payment Mode">
-              <select
+              <CustomSelect
                 value={paymentMode}
-                onChange={(e) => setPaymentMode(e.target.value as ContractorPaymentMode)}
-                className={inputCls}
-              >
-                {CONTRACTOR_PAYMENT_MODES.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
+                onChange={(val) => setPaymentMode(val as ContractorPaymentMode)}
+                options={CONTRACTOR_PAYMENT_MODES}
+              />
             </Field>
           </div>
 
@@ -699,16 +708,14 @@ function PaymentFormModal({
           </Field>
 
           <Field label="Link to Site (optional)">
-            <select
+            <CustomSelect
               value={siteId}
-              onChange={(e) => setSiteId(e.target.value)}
-              className={inputCls}
-            >
-              <option value="">— Not linked to any site —</option>
-              {sites.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
+              onChange={setSiteId}
+              options={[
+                { value: '', label: '— Not linked to any site —' },
+                ...sites.map((s) => ({ value: s.id, label: s.name })),
+              ]}
+            />
           </Field>
 
           {canBridge && (
@@ -776,13 +783,17 @@ const TRADE_COLORS: Record<ContractorTrade, string> = {
 };
 
 function ContractorsView({
-  contractors, payments, loading, onAdd, onUpdate, onDelete, showToast,
+  contractors, payments, loading, error, onAdd, onUpdate, onDelete, showToast,
 }: {
   contractors: Contractor[];
   payments: ContractorPayment[];
   loading: boolean;
+  error: string | null;
   onAdd: (input: ContractorInput) => Promise<void>;
-  onUpdate: (id: string, updates: Partial<ContractorInput & { active: boolean }>) => Promise<void>;
+  onUpdate: (
+    id: string,
+    updates: Partial<ContractorInput & { active: boolean }>
+  ) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   showToast: (msg: string, type: 'saved' | 'error') => void;
 }) {
@@ -833,6 +844,8 @@ function ContractorsView({
 
   return (
     <div>
+      <ErrorBanner message={error} />
+
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
@@ -843,25 +856,25 @@ function ContractorsView({
             className="w-full pl-11 pr-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all text-slate-900 dark:text-white"
           />
         </div>
-        <select
+        <CustomSelect
           value={tradeFilter}
-          onChange={(e) => setTradeFilter(e.target.value as 'all' | ContractorTrade)}
-          className="px-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none text-slate-900 dark:text-white font-medium text-sm"
-        >
-          <option value="all">All Trades</option>
-          {CONTRACTOR_TRADES.map((t) => (
-            <option key={t} value={t}>{t}</option>
-          ))}
-        </select>
-        <select
+          onChange={(val) => setTradeFilter(val as 'all' | ContractorTrade)}
+          options={[
+            { value: 'all', label: 'All Trades' },
+            ...CONTRACTOR_TRADES.map((t) => ({ value: t, label: t })),
+          ]}
+          className="min-w-[150px]"
+        />
+        <CustomSelect
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
-          className="px-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none text-slate-900 dark:text-white font-medium text-sm"
-        >
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-          <option value="all">All</option>
-        </select>
+          onChange={(val) => setStatusFilter(val as 'all' | 'active' | 'inactive')}
+          options={[
+            { value: 'active', label: 'Active' },
+            { value: 'inactive', label: 'Inactive' },
+            { value: 'all', label: 'All' },
+          ]}
+          className="min-w-[130px]"
+        />
         <button
           onClick={() => { setEditing(null); setShowForm(true); }}
           className="flex items-center justify-center gap-2 px-5 py-3 bg-slate-900 dark:bg-amber-400 text-white dark:text-slate-900 font-semibold rounded-xl hover:bg-slate-800 dark:hover:bg-amber-300 transition-colors whitespace-nowrap"
@@ -903,9 +916,16 @@ function ContractorsView({
                     </div>
                     <div className="min-w-0">
                       <h3 className="font-semibold text-slate-900 dark:text-white truncate">{c.name}</h3>
-                      <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full mt-0.5 ${TRADE_COLORS[c.trade]}`}>
-                        {c.trade}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                        <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full ${TRADE_COLORS[c.trade]}`}>
+                          {c.trade}
+                        </span>
+                        {!c.active && (
+                          <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-zinc-700 text-slate-500 dark:text-slate-400 uppercase">
+                            Inactive
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -995,6 +1015,7 @@ function ContractorFormModal({
   const [trade, setTrade] = useState<ContractorTrade>(contractor?.trade ?? 'Lohar');
   const [phone, setPhone] = useState(contractor?.phone ?? '');
   const [notes, setNotes] = useState(contractor?.notes ?? '');
+  const [active, setActive] = useState(contractor?.active ?? true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1009,6 +1030,7 @@ function ContractorFormModal({
         trade,
         phone: phone.trim(),
         notes: notes.trim(),
+        active,
       });
     } catch (err) {
       setError((err as Error).message);
@@ -1049,15 +1071,11 @@ function ContractorFormModal({
           </Field>
 
           <Field label="Trade" required>
-            <select
+            <CustomSelect
               value={trade}
-              onChange={(e) => setTrade(e.target.value as ContractorTrade)}
-              className={inputCls}
-            >
-              {CONTRACTOR_TRADES.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
+              onChange={(val) => setTrade(val as ContractorTrade)}
+              options={CONTRACTOR_TRADES}
+            />
           </Field>
 
           <Field label="Phone">
@@ -1076,6 +1094,17 @@ function ContractorFormModal({
               rows={2}
               className={`${inputCls} resize-none`}
               placeholder="Payment terms, rate notes, etc."
+            />
+          </Field>
+
+          <Field label="Status">
+            <CustomSelect
+              value={active ? 'active' : 'inactive'}
+              onChange={(val) => setActive(val === 'active')}
+              options={[
+                { value: 'active', label: 'Active' },
+                { value: 'inactive', label: 'Inactive' },
+              ]}
             />
           </Field>
 
@@ -1104,12 +1133,13 @@ function ContractorFormModal({
 /* ------------------------------------------------------------------ */
 
 function SummaryView({
-  contractors, payments, contractorById, loading,
+  contractors, payments, contractorById, loading, error,
 }: {
   contractors: Contractor[];
   payments: ContractorPayment[];
   contractorById: Map<string, Contractor>;
   loading: boolean;
+  error: string | null;
 }) {
   const contractorTotals = useMemo(() => {
     type Row = { contractor: Contractor; count: number; total: number; lastDate: string | null };
@@ -1169,7 +1199,8 @@ function SummaryView({
 
   return (
     <div className="space-y-5">
-      {/* By contractor */}
+      <ErrorBanner message={error} />
+
       <div>
         <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2">By Contractor</h3>
         <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800 overflow-hidden">
@@ -1216,7 +1247,6 @@ function SummaryView({
         </div>
       </div>
 
-      {/* By trade */}
       <div>
         <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2">By Trade</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

@@ -5,6 +5,7 @@ import {
   IndianRupee, HardHat, Calculator,
 } from 'lucide-react';
 import SiteSelector from '@/components/SiteSelector';
+import { CustomSelect } from '@/components/CustomSelect';
 import { useSites } from '@/hooks/useSites';
 import { useWorkers } from '@/hooks/useWorkers';
 import {
@@ -268,49 +269,47 @@ export default function SiteLedger() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl p-3 border border-slate-200 dark:border-zinc-800 mb-4 flex flex-col sm:flex-row gap-2">
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 px-1">
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl p-3 border border-slate-200 dark:border-zinc-800 mb-4 flex flex-col sm:flex-row gap-2 items-center">
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 px-1 shrink-0">
           <Filter className="w-3.5 h-3.5" /> Filters
         </div>
-        <select
+        <CustomSelect
           value={filterType}
-          onChange={(e) => setFilterType(e.target.value as typeof filterType)}
-          className={selectCls}
-        >
-          <option value="all">All Types</option>
-          <option value="credit">Client Receipts</option>
-          <option value="labour">Labour Expenses</option>
-          <option value="debit">Material / Other</option>
-        </select>
-        <select
+          onChange={(val) => setFilterType(val as any)}
+          options={[
+            { value: 'all', label: 'All Types' },
+            { value: 'credit', label: 'Client Receipts' },
+            { value: 'labour', label: 'Labour Expenses' },
+            { value: 'debit', label: 'Material / Other' },
+          ]}
+          className="w-full sm:w-auto min-w-[160px]"
+        />
+        <CustomSelect
           value={filterCategory}
-          onChange={(e) => setFilterCategory(e.target.value)}
-          className={selectCls}
-        >
-          <option value="all">All Categories</option>
-          {categoryOptions.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
+          onChange={setFilterCategory}
+          options={[
+            { value: 'all', label: 'All Categories' },
+            ...categoryOptions.map((c) => ({ value: c, label: c })),
+          ]}
+          className="w-full sm:w-auto min-w-[160px]"
+        />
         <input
           type="date"
           value={fromDate}
           onChange={(e) => setFromDate(e.target.value)}
-          className={selectCls}
+          className="w-full sm:w-auto px-3 py-3 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none text-sm"
         />
         <input
           type="date"
           value={toDate}
           onChange={(e) => setToDate(e.target.value)}
-          className={selectCls}
+          className="w-full sm:w-auto px-3 py-3 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none text-sm"
         />
         <div className="flex-1" />
         <button
           onClick={exportCSV}
           disabled={filteredRows.length === 0}
-          className="flex items-center justify-center gap-2 px-3 py-2 bg-slate-900 dark:bg-amber-400 text-white dark:text-slate-900 font-semibold rounded-xl hover:bg-slate-800 dark:hover:bg-amber-300 transition-colors text-xs whitespace-nowrap disabled:opacity-50 active:scale-95"
+          className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-3 bg-slate-900 dark:bg-amber-400 text-white dark:text-slate-900 font-semibold rounded-xl hover:bg-slate-800 dark:hover:bg-amber-300 transition-colors text-xs whitespace-nowrap disabled:opacity-50 active:scale-95"
         >
           <Download className="w-3.5 h-3.5" /> Export
         </button>
@@ -483,9 +482,6 @@ export default function SiteLedger() {
   );
 }
 
-const selectCls =
-  'px-3 py-2 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none text-xs font-medium';
-
 function SummaryCard({
   icon: Icon,
   label,
@@ -628,17 +624,11 @@ function TransactionModal({
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                 Category
               </label>
-              <select
+              <CustomSelect
                 value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none transition-all text-sm"
-              >
-                {categories.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+                onChange={setCategory}
+                options={categories}
+              />
             </div>
           </div>
 

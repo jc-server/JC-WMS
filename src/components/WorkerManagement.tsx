@@ -7,6 +7,7 @@ import { useWorkers, type Worker } from '@/hooks/useWorkers';
 import { useRoleCascade } from '@/hooks/useRoleCascade';
 import ManageRolesModal from '@/components/ManageRolesModal';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import { CustomSelect } from '@/components/CustomSelect';
 
 type Props = {
   onOpenProfile: (worker: Worker) => void;
@@ -22,8 +23,6 @@ export default function WorkerManagement({ onOpenProfile }: Props) {
     reactivateWorker,
   } = useWorkers();
 
-  // Cascade-aware role management: renames/deletes propagate to all
-  // workers currently assigned the old role.
   const { roles, addRole, updateRole, deleteRole } = useRoleCascade(
     workers,
     updateWorker
@@ -98,27 +97,25 @@ export default function WorkerManagement({ onOpenProfile }: Props) {
             className="w-full pl-11 pr-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all text-slate-900 dark:text-white"
           />
         </div>
-        <select
+        <CustomSelect
           value={roleFilter}
-          onChange={(e) => setRoleFilter(e.target.value)}
-          className="px-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none transition-all text-slate-900 dark:text-white font-medium text-sm"
-        >
-          <option value="all">All Roles</option>
-          {filterRoles.map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </select>
-        <select
+          onChange={setRoleFilter}
+          options={[
+            { value: 'all', label: 'All Roles' },
+            ...filterRoles.map((r) => ({ value: r, label: r })),
+          ]}
+          className="min-w-[140px]"
+        />
+        <CustomSelect
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-          className="px-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none transition-all text-slate-900 dark:text-white font-medium text-sm"
-        >
-          <option value="active">Active ({activeCount})</option>
-          <option value="inactive">Inactive ({inactiveCount})</option>
-          <option value="all">All ({workers.length})</option>
-        </select>
+          onChange={(val) => setStatusFilter(val as any)}
+          options={[
+            { value: 'active', label: `Active (${activeCount})` },
+            { value: 'inactive', label: `Inactive (${inactiveCount})` },
+            { value: 'all', label: `All (${workers.length})` },
+          ]}
+          className="min-w-[150px]"
+        />
         <button
           onClick={() => {
             setEditing(null);
@@ -387,17 +384,12 @@ function WorkerForm({
               Trade / Role
             </label>
             <div className="flex gap-2">
-              <select
+              <CustomSelect
                 value={role}
-                onChange={(e) => setRole(e.target.value)}
-                className="flex-1 px-4 py-3 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all"
-              >
-                {roles.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
+                onChange={setRole}
+                options={roles}
+                className="flex-1"
+              />
               <button
                 type="button"
                 onClick={onOpenRoles}

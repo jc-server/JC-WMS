@@ -21,26 +21,22 @@ const STATUS_CONFIG: Record<
 > = {
   present: {
     label: 'Present',
-    color:
-      'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 border-green-200 dark:border-green-900',
+    color: 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 border-green-200 dark:border-green-900',
     activeColor: 'bg-green-600 text-white border-green-600',
   },
   half: {
     label: 'Half',
-    color:
-      'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900',
+    color: 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900',
     activeColor: 'bg-amber-500 text-white border-amber-500',
   },
   absent: {
     label: 'Absent',
-    color:
-      'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-900',
+    color: 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-900',
     activeColor: 'bg-red-600 text-white border-red-600',
   },
   holiday: {
     label: 'Holiday',
-    color:
-      'bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-900',
+    color: 'bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-900',
     activeColor: 'bg-purple-600 text-white border-purple-600',
   },
 };
@@ -72,15 +68,6 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
   const [, setRenderTick] = useState(0);
   const forceRender = useCallback(() => setRenderTick((t) => t + 1), []);
 
-  /**
-   * Hydrate local state from server ONLY when:
-   *  - the date changes (hard reset), or
-   *  - a worker is added to the list.
-   *
-   * Dirty (unsaved) local edits are NEVER overwritten by incoming server
-   * snapshots, so auto-saves on one worker no longer wipe in-progress edits
-   * on another worker.
-   */
   useEffect(() => {
     const dateChanged = hydratedDateRef.current !== date;
     const current = localRef.current;
@@ -173,6 +160,12 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
     forceRender();
   };
 
+  /**
+   * FIX (race): only clear `isDirty` if the *same* entry object we saved is
+   * still the current one. Otherwise a slow save for edit #1 would clear the
+   * dirty flag on edit #2 that the user just made, and the next server
+   * snapshot would revert the UI to edit #1.
+   */
   const autoSave = useCallback(
     async (workerId: string) => {
       const entry = localRef.current[workerId];
@@ -187,8 +180,8 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
           entry.amountPaid,
           entry.remark
         );
-        if (localRef.current[workerId]) {
-          localRef.current[workerId].isDirty = false;
+        if (localRef.current[workerId] === entry) {
+          localRef.current[workerId] = { ...entry, isDirty: false };
         }
         showToast('Saved', 'saved');
       } catch (err) {
@@ -202,8 +195,6 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
   );
 
   const setStatus = (workerId: string, status: AttendanceStatus) => {
-    // Marking a worker absent must also zero any OT — an absent worker
-    // cannot have worked overtime hours.
     const updates: Partial<LocalEntry> = { status };
     if (status === 'absent') updates.overtimeHours = 0;
     updateLocalField(workerId, updates);
@@ -211,7 +202,6 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
   };
 
   const setOvertime = (workerId: string, ot: number) => {
-    // Guard: an absent worker cannot log OT.
     if (getStatus(workerId) === 'absent') return;
     updateLocalField(workerId, {
       overtimeHours: Math.max(0, Math.round(ot * 100) / 100),
@@ -240,8 +230,8 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
         entry.amountPaid,
         entry.remark
       );
-      if (localRef.current[workerId]) {
-        localRef.current[workerId].isDirty = false;
+      if (localRef.current[workerId] === entry) {
+        localRef.current[workerId] = { ...entry, isDirty: false };
       }
       showToast('Saved', 'saved');
     } catch (err) {
@@ -280,7 +270,8 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
     try {
       await saveAll(entries);
       activeWorkers.forEach((w) => {
-        if (localRef.current[w.id]) localRef.current[w.id].isDirty = false;
+        const cur = localRef.current[w.id];
+        if (cur) localRef.current[w.id] = { ...cur, isDirty: false };
       });
       showToast('All marked present', 'saved');
     } catch (err) {
@@ -292,10 +283,7 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
   const handleDeclareHoliday = async (reason: string) => {
     try {
       const count = await markHoliday(reason, activeWorkers.map((w) => w.id));
-      showToast(
-        `Holiday marked for ${count} worker${count === 1 ? '' : 's'}.`,
-        'saved'
-      );
+      showToast(`Holiday marked for ${count} worker${count === 1 ? '' : 's'}.`, 'saved');
       setShowHolidayModal(false);
     } catch (err) {
       showToast((err as Error).message, 'error');
@@ -317,20 +305,14 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
 
   return (
     <div>
-      <div
-        className={`fixed bottom-20 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 ${
-          toast.visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'
-        }`}
-      >
-        <div
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl shadow-lg text-sm font-semibold ${
-            toast.type === 'saved'
-              ? 'bg-emerald-600 text-white'
-              : toast.type === 'error'
-              ? 'bg-rose-600 text-white'
-              : 'bg-zinc-800 dark:bg-zinc-700 text-white'
-          }`}
-        >
+      <div className={`fixed bottom-20 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 ${
+        toast.visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'
+      }`}>
+        <div className={`flex items-center gap-2 px-4 py-2.5 rounded-xl shadow-lg text-sm font-semibold ${
+          toast.type === 'saved' ? 'bg-emerald-600 text-white'
+          : toast.type === 'error' ? 'bg-rose-600 text-white'
+          : 'bg-zinc-800 dark:bg-zinc-700 text-white'
+        }`}>
           {toast.type === 'saving' && <Loader2 className="w-4 h-4 animate-spin" />}
           {toast.type === 'saved' && <Check className="w-4 h-4" />}
           {toast.type === 'error' && <X className="w-4 h-4" />}
@@ -455,17 +437,14 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
                       </p>
                     </div>
                   </button>
-
                   <div className="flex items-center gap-2">
-                    <div
-                      className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 ${
-                        dailyBalance > 0
-                          ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900'
-                          : dailyBalance < 0
-                          ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900'
-                          : 'bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-zinc-700'
-                      }`}
-                    >
+                    <div className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 ${
+                      dailyBalance > 0
+                        ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900'
+                        : dailyBalance < 0
+                        ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900'
+                        : 'bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-zinc-700'
+                    }`}>
                       <span>Net Due:</span>
                       <span>₹{dailyBalance.toFixed(0)}</span>
                     </div>
@@ -554,13 +533,9 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
                       Amount Paid Today (₹)
                     </label>
                     <div className="relative flex-1">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-semibold">
-                        ₹
-                      </span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-semibold">₹</span>
                       <input
-                        type="number"
-                        step="0.01"
-                        min="0"
+                        type="number" step="0.01" min="0"
                         value={amountPaid || ''}
                         onChange={(e) => setAmountPaid(worker.id, parseFloat(e.target.value) || 0)}
                         className="w-full pl-7 pr-3 py-2 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none text-sm font-semibold"
@@ -593,20 +568,11 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
                       }`}
                     >
                       {isSavingThis ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Saving…</span>
-                        </>
+                        <><Loader2 className="w-4 h-4 animate-spin" /><span>Saving…</span></>
                       ) : isDirty ? (
-                        <>
-                          <Save className="w-4 h-4" />
-                          <span>Save</span>
-                        </>
+                        <><Save className="w-4 h-4" /><span>Save</span></>
                       ) : (
-                        <>
-                          <Check className="w-4 h-4 text-emerald-500" />
-                          <span>Saved</span>
-                        </>
+                        <><Check className="w-4 h-4 text-emerald-500" /><span>Saved</span></>
                       )}
                     </button>
                   </div>
@@ -629,17 +595,7 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
   );
 }
 
-function SummaryCard({
-  label,
-  value,
-  color,
-  bg,
-}: {
-  label: string;
-  value: string | number;
-  color: string;
-  bg: string;
-}) {
+function SummaryCard({ label, value, color, bg }: { label: string; value: string | number; color: string; bg: string }) {
   return (
     <div className={`${bg} rounded-xl p-3 text-center border border-transparent`}>
       <p className={`text-2xl font-bold ${color}`}>{value}</p>
@@ -649,10 +605,7 @@ function SummaryCard({
 }
 
 function HolidayModal({
-  date,
-  workerCount,
-  onClose,
-  onConfirm,
+  date, workerCount, onClose, onConfirm,
 }: {
   date: string;
   workerCount: number;
@@ -661,14 +614,10 @@ function HolidayModal({
 }) {
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
-
   const presets = ['Sunday', 'Holi', 'Diwali', 'Heavy Rain', 'Site Closed'];
 
   const dateLabel = new Date(date + 'T00:00:00').toLocaleDateString('en-IN', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   });
 
   const handleConfirm = async (e: React.FormEvent) => {
@@ -718,8 +667,7 @@ function HolidayModal({
               Reason for Holiday <span className="text-red-500">*</span>
             </label>
             <input
-              autoFocus
-              required
+              autoFocus required
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               className="w-full px-4 py-3 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all text-sm"

@@ -37,8 +37,6 @@ export function useAttendance(date: string) {
   const [records, setRecords] = useState<Record<string, AttendanceRecord>>({});
   const [loading, setLoading] = useState(true);
 
-  // Real-time subscription so the metrics ribbon and any other consumer
-  // reflect attendance changes immediately, without a manual refresh.
   useEffect(() => {
     if (!user || !date) {
       setRecords({});
@@ -93,7 +91,6 @@ export function useAttendance(date: string) {
       const docId = `${date}_${workerId}`;
       const ref = doc(db, 'users', user.uid, 'attendance', docId);
       const isHoliday = status === 'holiday';
-      // An absent worker cannot log overtime — never store OT on absent days.
       const effectiveOT = status === 'absent' ? 0 : overtimeHours;
 
       await setDoc(
@@ -106,7 +103,6 @@ export function useAttendance(date: string) {
           amountPaid,
           remark,
           isHoliday,
-          // Clear stale holidayReason whenever the day is no longer a holiday.
           holidayReason: isHoliday ? undefined : null,
           updatedAt: Date.now(),
         },
@@ -174,7 +170,9 @@ export function useAttendance(date: string) {
         for (const workerId of workerIds) {
           const docId = `${date}_${workerId}`;
           const ref = doc(db, 'users', user.uid, 'attendance', docId);
-          // merge:true preserves any existing amountPaid / advanceAmount.
+          // `amountPaid` and `advanceAmount` MUST be present so the doc
+          // satisfies validAttendance on CREATE. merge:true preserves any
+          // existing values, so these defaults only apply on create.
           batch.set(
             ref,
             {
@@ -184,7 +182,10 @@ export function useAttendance(date: string) {
               isHoliday: true,
               holidayReason: reason,
               overtimeHours: 0,
-              remark: `Holiday: ${reason}`,
+              amountPaid: 0,
+              advanceAmount: 0,
+              // `remark` is intentionally NOT touched — overwriting it would
+              // silently destroy any note the user entered for that day.
               updatedAt: Date.now(),
             },
             { merge: true }
@@ -258,7 +259,6 @@ export function useMonthlyAttendance(monthStr: string) {
           else if (status === 'holiday') map[workerId].holiday++;
           else map[workerId].absent++;
 
-          // OT only counts on days the worker actually worked.
           if (status !== 'absent') {
             map[workerId].otHours += Number(data.overtimeHours ?? 0);
           }
