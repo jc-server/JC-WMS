@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   TrendingUp, TrendingDown, Wallet, Plus, Download, Loader2, X,
   Trash2, Filter, Users, Package, Building2, Phone, CalendarDays,
-  IndianRupee, HardHat, Calculator,
+  IndianRupee, HardHat, Calculator, Pencil,
 } from 'lucide-react';
-import SiteSelector from '@/components/SiteSelector';
+import SiteSelector, { SiteFormModal } from '@/components/SiteSelector';
 import { CustomSelect } from '@/components/CustomSelect';
 import { useSites } from '@/hooks/useSites';
 import { useWorkers } from '@/hooks/useWorkers';
@@ -30,7 +30,7 @@ export default function SiteLedger() {
     if (siteId) localStorage.setItem('jcwms-ledger-site', siteId);
   }, [siteId]);
 
-  const { sites } = useSites();
+  const { sites, updateSite } = useSites();
   const site = sites.find((s) => s.id === siteId);
 
   const {
@@ -46,6 +46,7 @@ export default function SiteLedger() {
   const [showReceive, setShowReceive] = useState(false);
   const [showExpense, setShowExpense] = useState(false);
   const [showBookLabour, setShowBookLabour] = useState(false);
+  const [showEditSite, setShowEditSite] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{
     id: string;
     category: string;
@@ -154,6 +155,13 @@ export default function SiteLedger() {
         <div>
           <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Building2 className="w-5 h-5 text-amber-500" /> {site.name}
+            <button
+              onClick={() => setShowEditSite(true)}
+              className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+              title="Edit Site Details"
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
           </h2>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-xs text-slate-500 dark:text-slate-400">
             {site.clientName && (
@@ -445,6 +453,18 @@ export default function SiteLedger() {
             await addTransaction(input);
             showToast('Labour payout booked', 'saved');
             setShowBookLabour(false);
+          }}
+        />
+      )}
+
+      {showEditSite && (
+        <SiteFormModal
+          site={site}
+          onClose={() => setShowEditSite(false)}
+          onSave={async (input) => {
+            await updateSite(site.id, input);
+            setShowEditSite(false);
+            showToast('Site details updated.', 'saved');
           }}
         />
       )}

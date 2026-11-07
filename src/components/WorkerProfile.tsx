@@ -187,6 +187,20 @@ export default function WorkerProfile({
     setMonthStr(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   };
 
+  const shiftDayPopup = (delta: number) => {
+    if (!showDayPopup) return;
+    const currentDate = new Date(showDayPopup + 'T00:00:00');
+    currentDate.setDate(currentDate.getDate() + delta);
+    
+    const newDateStr = dateStr(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
+    const newMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    
+    if (newMonthStr !== monthStr) {
+      setMonthStr(newMonthStr);
+    }
+    setShowDayPopup(newDateStr);
+  };
+
   const downloadMonthlySlip = () => {
     const monthLabelText = monthLabel(monthStr);
     const rows: (string | number)[][] = [];
@@ -752,9 +766,11 @@ export default function WorkerProfile({
 
       {showDayPopup && (
         <DayEditPopup
+          key={showDayPopup}
           date={showDayPopup}
           record={records[showDayPopup]}
           onClose={() => setShowDayPopup(null)}
+          onNavigateDay={shiftDayPopup}
           onSave={async (status, ot, amountPaid, advanceAmount, remark) => {
             await saveDay(showDayPopup, status, ot, amountPaid, advanceAmount, remark);
             setShowDayPopup(null);
@@ -844,6 +860,7 @@ function DayEditPopup({
   onClose,
   onSave,
   onDelete,
+  onNavigateDay,
 }: {
   date: string;
   record: DayRecord | undefined;
@@ -856,6 +873,7 @@ function DayEditPopup({
     remark: string
   ) => Promise<void>;
   onDelete: () => Promise<void>;
+  onNavigateDay: (delta: number) => void;
 }) {
   const [status, setStatus] = useState<AttendanceStatus>(record?.status ?? 'absent');
   const [ot, setOt] = useState(record?.overtimeHours ?? 0);
@@ -894,7 +912,23 @@ function DayEditPopup({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-slate-900 dark:text-white text-sm">{dateLabel}</h3>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onNavigateDay(-1)}
+              className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <h3 className="font-bold text-slate-900 dark:text-white text-sm min-w-[80px] text-center">
+              {dateLabel}
+            </h3>
+            <button
+              onClick={() => onNavigateDay(1)}
+              className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
           <button
             onClick={onClose}
             className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg transition-colors"

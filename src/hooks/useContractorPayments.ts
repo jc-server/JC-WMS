@@ -7,16 +7,7 @@ import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 import { roundCurrency } from '@/utils/calculations';
 
-export type ContractorTrade =
-  | 'Lohar'
-  | 'Electrician'
-  | 'Plumber'
-  | 'Carpenter'
-  | 'Painter'
-  | 'Mason'
-  | 'Welder'
-  | 'Tiles'
-  | 'Other';
+export type ContractorTrade = string;
 
 export const CONTRACTOR_TRADES: ContractorTrade[] = [
   'Lohar', 'Electrician', 'Plumber', 'Carpenter', 'Painter',

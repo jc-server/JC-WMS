@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import {
-  MapPin, Plus, X, ChevronDown, Trash2, Loader2, User, Phone, CalendarDays,
+  MapPin, Plus, X, ChevronDown, Trash2, Loader2, User, Phone, CalendarDays, Pencil,
 } from 'lucide-react';
 import { useSites, type Site, type SiteInput, type SiteStatus } from '@/hooks/useSites';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import { todayStr } from '@/utils/date';
 
 type Props = {
   currentSiteId: string | null;
@@ -11,9 +12,10 @@ type Props = {
 };
 
 export default function SiteSelector({ currentSiteId, onSelectSite }: Props) {
-  const { sites, loading, addSite, deleteSite } = useSites();
+  const { sites, loading, addSite, updateSite, deleteSite } = useSites();
   const [open, setOpen] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [editingSite, setEditingSite] = useState<Site | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Site | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -95,17 +97,30 @@ export default function SiteSelector({ currentSiteId, onSelectSite }: Props) {
                       )}
                     </div>
                   </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setPendingDelete(site);
-                      setOpen(false);
-                    }}
-                    className="p-1 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all shrink-0"
-                    title="Delete site"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingSite(site);
+                        setOpen(false);
+                      }}
+                      className="p-1 text-slate-300 hover:text-slate-500 dark:text-slate-600 dark:hover:text-slate-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                      title="Edit site"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPendingDelete(site);
+                        setOpen(false);
+                      }}
+                      className="p-1 text-slate-300 hover:text-red-500 dark:text-slate-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                      title="Delete site"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               ))}
 
@@ -124,11 +139,22 @@ export default function SiteSelector({ currentSiteId, onSelectSite }: Props) {
       </div>
 
       {showAdd && (
-        <AddSiteModal
+        <SiteFormModal
           onClose={() => setShowAdd(false)}
           onSave={async (input) => {
             await addSite(input);
             setShowAdd(false);
+          }}
+        />
+      )}
+
+      {editingSite && (
+        <SiteFormModal
+          site={editingSite}
+          onClose={() => setEditingSite(null)}
+          onSave={async (input) => {
+            await updateSite(editingSite.id, input);
+            setEditingSite(null);
           }}
         />
       )}
@@ -162,22 +188,20 @@ export default function SiteSelector({ currentSiteId, onSelectSite }: Props) {
   );
 }
 
-function AddSiteModal({
+export function SiteFormModal({
+  site,
   onClose,
   onSave,
 }: {
+  site?: Site | null;
   onClose: () => void;
   onSave: (input: SiteInput) => Promise<void>;
 }) {
-  const [name, setName] = useState('');
-  const [clientName, setClientName] = useState('');
-  const [clientPhone, setClientPhone] = useState('');
-  const [startDate, setStartDate] = useState(() => {
-    const d = new Date();
-    const tz = d.getTimezoneOffset() * 60000;
-    return new Date(d.getTime() - tz).toISOString().slice(0, 10);
-  });
-  const [status, setStatus] = useState<SiteStatus>('Active');
+  const [name, setName] = useState(site?.name ?? '');
+  const [clientName, setClientName] = useState(site?.clientName ?? '');
+  const [clientPhone, setClientPhone] = useState(site?.clientPhone ?? '');
+  const [startDate, setStartDate] = useState(site?.startDate ?? todayStr);
+  const [status, setStatus] = useState<SiteStatus>(site?.status ?? 'Active');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -210,7 +234,9 @@ function AddSiteModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-zinc-800 sticky top-0 bg-white dark:bg-zinc-900 rounded-t-2xl z-10">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-white">Add New Site</h2>
+          <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+            {site ? 'Edit Site Details' : 'Add New Site'}
+          </h2>
           <button
             onClick={onClose}
             className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
@@ -291,7 +317,7 @@ function AddSiteModal({
             className="w-full py-3 bg-slate-900 dark:bg-amber-400 text-white dark:text-slate-900 font-bold rounded-xl hover:bg-slate-800 dark:hover:bg-amber-300 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 active:scale-[0.98]"
           >
             {saving && <Loader2 className="w-5 h-5 animate-spin" />}
-            Create Site
+            {site ? 'Save Changes' : 'Create Site'}
           </button>
         </form>
       </div>

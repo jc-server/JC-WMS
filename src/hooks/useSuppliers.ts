@@ -12,14 +12,7 @@ import {
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 
-export type SupplierType =
-  | 'Brick'
-  | 'Sand'
-  | 'Aggregate'
-  | 'Cement'
-  | 'Steel'
-  | 'Stone'
-  | 'Other';
+export type SupplierType = string;
 
 export const SUPPLIER_TYPES: SupplierType[] = [
   'Brick',
@@ -77,8 +70,6 @@ export function useSuppliers() {
           const rawTypes = data.types as SupplierType[] | undefined;
           const legacyType = data.type as SupplierType | undefined;
           
-          // FIX: Explicitly type the variable so TypeScript knows the fallback
-          // string array conforms to SupplierType[]
           const types: SupplierType[] = rawTypes && rawTypes.length > 0 
             ? rawTypes 
             : (legacyType ? [legacyType] : ['Other']);

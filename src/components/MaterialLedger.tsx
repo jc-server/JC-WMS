@@ -29,6 +29,7 @@ import {
   SUPPLIER_PAYMENT_MODES,
   type SupplierPaymentMode,
 } from '@/hooks/useSupplierPayments';
+import { useMaterialTypes } from '@/hooks/useMaterialTypes';
 import { rowsToCsv, downloadCsv } from '@/utils/csv';
 import { todayStr } from '@/utils/date';
 import { roundCurrency } from '@/utils/calculations';
@@ -355,7 +356,7 @@ function Field({
 /* Suppliers                                                           */
 /* ------------------------------------------------------------------ */
 
-const SUPPLIER_TYPE_COLORS: Record<SupplierType, string> = {
+const SUPPLIER_TYPE_COLORS: Record<string, string> = {
   Brick: 'bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400',
   Sand: 'bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400',
   Aggregate: 'bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-slate-300',
@@ -364,6 +365,8 @@ const SUPPLIER_TYPE_COLORS: Record<SupplierType, string> = {
   Stone: 'bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-400',
   Other: 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400',
 };
+
+const getTypeColor = (type: string) => SUPPLIER_TYPE_COLORS[type] || 'bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300';
 
 function SuppliersView({
   suppliers, loading, error, khata, onAdd, onUpdate, onDelete, showToast,
@@ -378,12 +381,14 @@ function SuppliersView({
   showToast: (msg: string, type: 'saved' | 'error') => void;
 }) {
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'all' | SupplierType>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | string>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('active');
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Supplier | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
+  
+  const { types: masterTypes } = useMaterialTypes();
 
   const filtered = useMemo(() => {
     return suppliers.filter((s) => {
@@ -430,10 +435,10 @@ function SuppliersView({
         </div>
         <CustomSelect
           value={typeFilter}
-          onChange={(val) => setTypeFilter(val as 'all' | SupplierType)}
+          onChange={(val) => setTypeFilter(val as 'all' | string)}
           options={[
             { value: 'all', label: 'All Types' },
-            ...SUPPLIER_TYPES.map((t) => ({ value: t, label: t })),
+            ...masterTypes.map((t) => ({ value: t, label: t })),
           ]}
           className="min-w-[150px]"
         />
@@ -491,7 +496,7 @@ function SuppliersView({
                       <h3 className="font-semibold text-slate-900 dark:text-white truncate">{s.name}</h3>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {s.types.map(t => (
-                          <span key={t} className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full ${SUPPLIER_TYPE_COLORS[t]}`}>
+                          <span key={t} className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full ${getTypeColor(t)}`}>
                             {t}
                           </span>
                         ))}
@@ -602,6 +607,10 @@ function SupplierFormModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const { types: masterTypes, addType, removeType } = useMaterialTypes();
+  const [newType, setNewType] = useState('');
+  const [isAdding, setIsAdding] = useState(false);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
@@ -630,6 +639,15 @@ function SupplierFormModal({
 
   const toggleType = (t: SupplierType) => {
     setTypes(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
+  };
+
+  const handleAddNewType = async () => {
+    if (!newType.trim()) return;
+    const t = newType.trim();
+    await addType(t);
+    setTypes(prev => [...prev, t]);
+    setNewType('');
+    setIsAdding(false);
   };
 
   return (
@@ -665,24 +683,64 @@ function SupplierFormModal({
           </Field>
 
           <Field label="Materials Supplied" required>
-            <div className="flex flex-wrap gap-2">
-              {SUPPLIER_TYPES.map((t) => {
+            <div className="flex flex-wrap gap-2 items-center">
+              {masterTypes.map((t) => {
                 const isActive = types.includes(t);
                 return (
-                  <button
-                    type="button"
-                    key={t}
-                    onClick={() => toggleType(t)}
-                    className={`px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors ${
-                      isActive
-                        ? 'bg-amber-400 text-slate-900 border-amber-400'
-                        : 'bg-slate-50 dark:bg-zinc-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-zinc-700'
-                    }`}
-                  >
-                    {t}
-                  </button>
+                  <div key={t} className="relative group">
+                    <button
+                      type="button"
+                      onClick={() => toggleType(t)}
+                      className={`px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors ${
+                        isActive
+                          ? 'bg-amber-400 text-slate-900 border-amber-400'
+                          : 'bg-slate-50 dark:bg-zinc-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-zinc-700'
+                      }`}
+                    >
+                      {t}
+                    </button>
+                    {/* Remove Material Button (only shows on hover if not selected) */}
+                    {!isActive && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); removeType(t); }}
+                        className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                        title={`Remove ${t} from list`}
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    )}
+                  </div>
                 );
               })}
+
+              {/* Add New Material Form */}
+              {isAdding ? (
+                <div className="flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 rounded-lg p-1 border border-slate-200 dark:border-zinc-700">
+                  <input
+                    autoFocus
+                    value={newType}
+                    onChange={(e) => setNewType(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddNewType(); } }}
+                    placeholder="New material"
+                    className="bg-transparent text-sm w-24 outline-none px-1 dark:text-white"
+                  />
+                  <button type="button" onClick={handleAddNewType} className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 rounded">
+                    <Check className="w-3.5 h-3.5" />
+                  </button>
+                  <button type="button" onClick={() => setIsAdding(false)} className="p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-zinc-700 rounded">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsAdding(true)}
+                  className="px-3 py-1.5 rounded-lg border border-dashed border-slate-300 dark:border-zinc-600 text-slate-500 dark:text-slate-400 text-sm font-medium hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add
+                </button>
+              )}
             </div>
           </Field>
 

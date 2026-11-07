@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
   HandCoins, Plus, X, Search, Pencil, Trash2, Loader2, Download,
-  Wallet, CalendarDays, Filter, Phone, Building2,
+  Wallet, CalendarDays, Filter, Phone, Building2, Check,
 } from 'lucide-react';
 
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -10,7 +10,6 @@ import { useSites } from '@/hooks/useSites';
 import {
   useContractors,
   useContractorPayments,
-  CONTRACTOR_TRADES,
   CONTRACTOR_PAYMENT_MODES,
   type Contractor,
   type ContractorTrade,
@@ -18,6 +17,7 @@ import {
   type ContractorPayment,
   type ContractorPaymentMode,
 } from '@/hooks/useContractorPayments';
+import { useContractorTrades } from '@/hooks/useContractorTrades';
 import { rowsToCsv, downloadCsv } from '@/utils/csv';
 import {
   todayStr, currentMonthStr, monthStartStr, monthEndStr,
@@ -153,7 +153,6 @@ export default function ContractorPayments() {
           icon={Filter}
           label="Trades Used"
           value={String(totals.tradesUsed)}
-          sub={`of ${CONTRACTOR_TRADES.length}`}
           color="text-cyan-600 dark:text-cyan-400"
           bg="bg-cyan-50 dark:bg-cyan-950/40"
         />
@@ -313,6 +312,8 @@ function PaymentsView({
   const [pendingDelete, setPendingDelete] = useState<ContractorPayment | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
 
+  const { trades: masterTrades } = useContractorTrades();
+
   const filtered = useMemo(() => {
     return payments.filter((p) => {
       if (contractorFilter !== 'all' && p.contractorId !== contractorFilter) return false;
@@ -384,7 +385,7 @@ function PaymentsView({
           onChange={(val) => setTradeFilter(val as 'all' | ContractorTrade)}
           options={[
             { value: 'all', label: 'All Trades' },
-            ...CONTRACTOR_TRADES.map((t) => ({ value: t, label: t })),
+            ...masterTrades.map((t) => ({ value: t, label: t })),
           ]}
           className="min-w-[150px]"
         />
@@ -485,7 +486,7 @@ function PaymentsView({
                         <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
                           {c?.name ?? '—'}
                           {c?.trade && (
-                            <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 uppercase">
+                            <span className={`ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${getTradeColor(c.trade)}`}>
                               {c.trade}
                             </span>
                           )}
@@ -770,7 +771,7 @@ function PaymentFormModal({
 /* Contractors directory                                               */
 /* ------------------------------------------------------------------ */
 
-const TRADE_COLORS: Record<ContractorTrade, string> = {
+const TRADE_COLORS: Record<string, string> = {
   Lohar: 'bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300',
   Electrician: 'bg-yellow-100 dark:bg-yellow-950/40 text-yellow-700 dark:text-yellow-400',
   Plumber: 'bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400',
@@ -781,6 +782,8 @@ const TRADE_COLORS: Record<ContractorTrade, string> = {
   Tiles: 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400',
   Other: 'bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-slate-300',
 };
+
+const getTradeColor = (trade: string) => TRADE_COLORS[trade] || 'bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300';
 
 function ContractorsView({
   contractors, payments, loading, error, onAdd, onUpdate, onDelete, showToast,
@@ -804,6 +807,8 @@ function ContractorsView({
   const [editing, setEditing] = useState<Contractor | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Contractor | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
+
+  const { trades: masterTrades } = useContractorTrades();
 
   const paymentsByContractor = useMemo(() => {
     const map = new Map<string, { count: number; total: number; lastDate: string | null }>();
@@ -861,7 +866,7 @@ function ContractorsView({
           onChange={(val) => setTradeFilter(val as 'all' | ContractorTrade)}
           options={[
             { value: 'all', label: 'All Trades' },
-            ...CONTRACTOR_TRADES.map((t) => ({ value: t, label: t })),
+            ...masterTrades.map((t) => ({ value: t, label: t })),
           ]}
           className="min-w-[150px]"
         />
@@ -917,7 +922,7 @@ function ContractorsView({
                     <div className="min-w-0">
                       <h3 className="font-semibold text-slate-900 dark:text-white truncate">{c.name}</h3>
                       <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                        <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full ${TRADE_COLORS[c.trade]}`}>
+                        <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full ${getTradeColor(c.trade)}`}>
                           {c.trade}
                         </span>
                         {!c.active && (
@@ -1019,9 +1024,23 @@ function ContractorFormModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const { trades: masterTrades, addTrade, removeTrade } = useContractorTrades();
+  const [newTrade, setNewTrade] = useState('');
+  const [isAdding, setIsAdding] = useState(false);
+
+  useEffect(() => {
+    if (!trade && masterTrades.length > 0) {
+      setTrade(masterTrades[0]);
+    }
+  }, [masterTrades, trade]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+    if (!trade) {
+      setError('Please select a trade.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -1036,6 +1055,15 @@ function ContractorFormModal({
       setError((err as Error).message);
       setSaving(false);
     }
+  };
+
+  const handleAddNewTrade = async () => {
+    if (!newTrade.trim()) return;
+    const t = newTrade.trim();
+    await addTrade(t);
+    setTrade(t);
+    setNewTrade('');
+    setIsAdding(false);
   };
 
   return (
@@ -1071,11 +1099,65 @@ function ContractorFormModal({
           </Field>
 
           <Field label="Trade" required>
-            <CustomSelect
-              value={trade}
-              onChange={(val) => setTrade(val as ContractorTrade)}
-              options={CONTRACTOR_TRADES}
-            />
+            <div className="flex flex-wrap gap-2 items-center">
+              {masterTrades.map((t) => {
+                const isActive = trade === t;
+                return (
+                  <div key={t} className="relative group">
+                    <button
+                      type="button"
+                      onClick={() => setTrade(t)}
+                      className={`px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors ${
+                        isActive
+                          ? 'bg-amber-400 text-slate-900 border-amber-400'
+                          : 'bg-slate-50 dark:bg-zinc-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-zinc-700'
+                      }`}
+                    >
+                      {t}
+                    </button>
+                    {/* Remove Trade Button */}
+                    {!isActive && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); removeTrade(t); }}
+                        className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                        title={`Remove ${t} from list`}
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Add New Trade Form */}
+              {isAdding ? (
+                <div className="flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 rounded-lg p-1 border border-slate-200 dark:border-zinc-700">
+                  <input
+                    autoFocus
+                    value={newTrade}
+                    onChange={(e) => setNewTrade(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddNewTrade(); } }}
+                    placeholder="New trade"
+                    className="bg-transparent text-sm w-24 outline-none px-1 dark:text-white"
+                  />
+                  <button type="button" onClick={handleAddNewTrade} className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 rounded">
+                    <Check className="w-3.5 h-3.5" />
+                  </button>
+                  <button type="button" onClick={() => setIsAdding(false)} className="p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-zinc-700 rounded">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsAdding(true)}
+                  className="px-3 py-1.5 rounded-lg border border-dashed border-slate-300 dark:border-zinc-600 text-slate-500 dark:text-slate-400 text-sm font-medium hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add
+                </button>
+              )}
+            </div>
           </Field>
 
           <Field label="Phone">
@@ -1116,7 +1198,7 @@ function ContractorFormModal({
 
           <button
             type="submit"
-            disabled={saving || !name.trim()}
+            disabled={saving || !name.trim() || !trade}
             className="w-full py-3 bg-slate-900 dark:bg-amber-400 text-white dark:text-slate-900 font-bold rounded-xl hover:bg-slate-800 dark:hover:bg-amber-300 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 active:scale-[0.98]"
           >
             {saving && <Loader2 className="w-5 h-5 animate-spin" />}
@@ -1222,7 +1304,7 @@ function SummaryView({
                       {contractor.name}
                     </td>
                     <td className="px-3 py-3 text-xs text-slate-500 dark:text-slate-400 hidden sm:table-cell">
-                      <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full ${TRADE_COLORS[contractor.trade]}`}>
+                      <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full ${getTradeColor(contractor.trade)}`}>
                         {contractor.trade}
                       </span>
                     </td>
@@ -1253,7 +1335,7 @@ function SummaryView({
           {tradeTotals.map((t) => (
             <div key={t.trade} className="bg-white dark:bg-zinc-900 rounded-2xl p-4 border border-slate-200 dark:border-zinc-800">
               <div className="flex items-center justify-between mb-2">
-                <span className={`text-[11px] font-bold uppercase px-2 py-0.5 rounded-full ${TRADE_COLORS[t.trade]}`}>
+                <span className={`text-[11px] font-bold uppercase px-2 py-0.5 rounded-full ${getTradeColor(t.trade)}`}>
                   {t.trade}
                 </span>
                 <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
