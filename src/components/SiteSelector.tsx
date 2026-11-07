@@ -251,6 +251,7 @@ export function SiteFormModal({
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
+              maxLength={120}
               className={inputCls}
               placeholder="e.g. Sharma Villa — Phase 1"
             />

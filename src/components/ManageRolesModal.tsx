@@ -92,6 +92,7 @@ export default function ManageRolesModal({
             <input
               value={newRole}
               onChange={(e) => setNewRole(e.target.value)}
+              maxLength={60}
               placeholder="Add new role..."
               className="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all text-sm"
             />
@@ -165,6 +166,7 @@ export default function ManageRolesModal({
                       <input
                         value={editValue}
                         onChange={(e) => setEditValue(e.target.value)}
+                        maxLength={60}
                         autoFocus
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') handleUpdate(role);

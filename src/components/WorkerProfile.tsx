@@ -363,6 +363,7 @@ export default function WorkerProfile({
                   <input
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
+                    maxLength={100}
                     className="w-full px-3 py-2 bg-white dark:bg-zinc-900 text-slate-900 dark:text-white rounded-lg border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none text-sm"
                   />
                 </div>
@@ -894,10 +895,10 @@ function DayEditPopup({
     setSaving(true);
     await onSave(
       status,
-      isAbsent ? 0 : ot,
-      parseFloat(amountPaid) || 0,
-      parseFloat(advanceAmount) || 0,
-      remark.trim()
+      isAbsent ? 0 : Math.min(24, Math.max(0, ot)),
+      Math.max(0, parseFloat(amountPaid) || 0),
+      Math.max(0, parseFloat(advanceAmount) || 0),
+      remark.trim().slice(0, 500)
     );
     setSaving(false);
   };
@@ -988,13 +989,17 @@ function DayEditPopup({
               type="number"
               step="0.5"
               min="0"
+              max="24"
               disabled={isAbsent}
               value={ot}
-              onChange={(e) => setOt(parseFloat(e.target.value) || 0)}
+              onChange={(e) => {
+                const raw = parseFloat(e.target.value) || 0;
+                setOt(Math.min(24, Math.max(0, raw)));
+              }}
               className="flex-1 text-center py-2 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-lg border border-slate-200 dark:border-zinc-700 outline-none font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <button
-              onClick={() => setOt(ot + 0.5)}
+              onClick={() => setOt(Math.min(24, ot + 0.5))}
               disabled={isAbsent}
               className="p-2.5 bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300 rounded-lg transition-colors active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed"
             >
@@ -1051,6 +1056,7 @@ function DayEditPopup({
             type="text"
             value={remark}
             onChange={(e) => setRemark(e.target.value)}
+            maxLength={500}
             className="w-full px-3 py-2 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-lg border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none text-sm"
             placeholder="e.g., Travel fare, Cash advance"
           />
