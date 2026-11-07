@@ -21,6 +21,11 @@ import { rowsToCsv, downloadCsv } from '@/utils/csv';
 const LABOUR_CATEGORY = 'Labour / Worker Wages';
 const DEBIT_CATEGORIES_WITH_LABOUR: string[] = [LABOUR_CATEGORY, ...DEBIT_CATEGORIES];
 
+// Field length caps mirror the other remark inputs in the app for
+// consistency. `validTransaction` does not validate `remark`, so this is
+// cosmetic — it just keeps the maximum consistent across the codebase.
+const REMARK_MAX = 500;
+
 export default function SiteLedger() {
   const [siteId, setSiteId] = useState<string | null>(
     () => localStorage.getItem('jcwms-ledger-site')
@@ -681,6 +686,7 @@ function TransactionModal({
             <input
               value={remark}
               onChange={(e) => setRemark(e.target.value)}
+              maxLength={REMARK_MAX}
               className="w-full px-4 py-3 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none transition-all text-sm"
               placeholder={
                 isCredit ? 'e.g. 1st running bill received' : 'e.g. 50 bags from Sharma Traders'
@@ -911,6 +917,7 @@ function BookLabourPayoutModal({
             <input
               value={remark}
               onChange={(e) => setRemark(e.target.value)}
+              maxLength={REMARK_MAX}
               className="w-full px-4 py-3 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none transition-all text-sm"
               placeholder={`Labour payout (${fromDate} → ${toDate})`}
             />

@@ -170,9 +170,12 @@ export function useAttendance(date: string) {
         for (const workerId of workerIds) {
           const docId = `${date}_${workerId}`;
           const ref = doc(db, 'users', user.uid, 'attendance', docId);
-          // `amountPaid` and `advanceAmount` MUST be present so the doc
-          // satisfies validAttendance on CREATE. merge:true preserves any
-          // existing values, so these defaults only apply on create.
+          // FIX: Do NOT touch amountPaid / advanceAmount / overtimeHours /
+          // remark. With merge:true, omitting these fields preserves any
+          // existing values on update and leaves them absent on create
+          // (readers all default to 0 / '' via `?? 0`). Writing them as 0
+          // here — as the previous version did — silently wiped any payment,
+          // advance, or logged OT the user had already recorded for this day.
           batch.set(
             ref,
             {
@@ -181,11 +184,6 @@ export function useAttendance(date: string) {
               status: 'holiday',
               isHoliday: true,
               holidayReason: reason,
-              overtimeHours: 0,
-              amountPaid: 0,
-              advanceAmount: 0,
-              // `remark` is intentionally NOT touched — overwriting it would
-              // silently destroy any note the user entered for that day.
               updatedAt: Date.now(),
             },
             { merge: true }
