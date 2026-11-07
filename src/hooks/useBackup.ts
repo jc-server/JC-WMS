@@ -24,6 +24,8 @@ export type BackupPayload = {
     sites: BackupDoc[];
     transactionsBySite: Record<string, BackupDoc[]>;
     roles: string[] | null;
+    materialTypes: string[] | null;
+    contractorTrades: string[] | null;
     suppliers?: BackupDoc[];
     deliveries?: BackupDoc[];
     commissions?: BackupDoc[];
@@ -40,9 +42,7 @@ type RestoreMode = 'merge' | 'replace';
  * shape. Throws a user-friendly error if anything is missing or malformed
  * so we never start writing to Firestore with a partial payload.
  */
-function validatePayload(
-  payload: unknown
-): asserts payload is BackupPayload {
+function validatePayload(payload: unknown): asserts payload is BackupPayload {
   if (!payload || typeof payload !== 'object') {
     throw new Error('Invalid backup file: not a JSON object.');
   }
@@ -85,6 +85,20 @@ function validatePayload(
     (typeof d.transactionsBySite !== 'object' || d.transactionsBySite === null)
   ) {
     throw new Error('Invalid backup file: "transactionsBySite" must be an object.');
+  }
+
+  const optionalStringArrays = [
+    'roles',
+    'materialTypes',
+    'contractorTrades',
+  ] as const;
+  for (const key of optionalStringArrays) {
+    const val = d[key];
+    if (val !== undefined && val !== null && !Array.isArray(val)) {
+      throw new Error(
+        `Invalid backup file: "${key}" must be an array or null if present.`
+      );
+    }
   }
 }
 
@@ -134,12 +148,20 @@ export function useBackup() {
     }
 
     let roles: string[] | null = null;
+    let materialTypes: string[] | null = null;
+    let contractorTrades: string[] | null = null;
     try {
-      const rolesSnap = await getDocs(collection(db, 'users', uid, 'settings'));
-      rolesSnap.forEach((d) => {
-        if (d.id === 'roles') {
-          const data = d.data() as { roles?: string[] };
-          if (Array.isArray(data.roles)) roles = data.roles;
+      const settingsSnap = await getDocs(collection(db, 'users', uid, 'settings'));
+      settingsSnap.forEach((d) => {
+        const data = d.data() as Record<string, unknown>;
+        if (d.id === 'roles' && Array.isArray(data.roles)) {
+          roles = data.roles as string[];
+        }
+        if (d.id === 'materialTypes' && Array.isArray(data.types)) {
+          materialTypes = data.types as string[];
+        }
+        if (d.id === 'contractorTrades' && Array.isArray(data.trades)) {
+          contractorTrades = data.trades as string[];
         }
       });
     } catch {
@@ -158,6 +180,8 @@ export function useBackup() {
         sites: toDocs(sitesSnap),
         transactionsBySite,
         roles,
+        materialTypes,
+        contractorTrades,
         suppliers: toDocs(suppliersSnap),
         deliveries: toDocs(deliveriesSnap),
         commissions: toDocs(commissionsSnap),
@@ -187,9 +211,9 @@ export function useBackup() {
   /**
    * Restore.
    *
-   * `replace` mode now takes an in-memory safety backup of the current
-   * data BEFORE wiping. If the write fails partway through, we roll back
-   * to that safety snapshot so the user is never left with an empty or
+   * `replace` mode takes an in-memory safety backup of the current data
+   * BEFORE wiping. If the write fails partway through, we roll back to
+   * that safety snapshot so the user is never left with an empty or
    * half-restored account after a network blip.
    */
   const restore = useCallback(
@@ -254,7 +278,8 @@ export function useBackup() {
   /**
    * Wipes ALL of the current user's data — workers, attendance, advances,
    * sites + their transactions, suppliers, deliveries, commissions,
-   * supplierPayments, contractors, contractorPayments and role settings.
+   * supplierPayments, contractors, contractorPayments, and ALL settings
+   * documents (roles / materialTypes / contractorTrades).
    */
   const wipeEverything = useCallback(async () => {
     if (!user) throw new Error('Not signed in.');
@@ -285,9 +310,9 @@ async function writeChunks(items: WriteItem[]) {
   const CHUNK = 400;
   for (let i = 0; i < items.length; i += CHUNK) {
     const batch = writeBatch(db);
-    items.slice(i, i + CHUNK).forEach(({ ref, data }) =>
-      batch.set(ref, data, { merge: true })
-    );
+    items
+      .slice(i, i + CHUNK)
+      .forEach(({ ref, data }) => batch.set(ref, data, { merge: true }));
     await batch.commit();
   }
 }
@@ -352,6 +377,26 @@ async function applyRestoreData(
       {
         ref: doc(db, 'users', uid, 'settings', 'roles'),
         data: { roles: data.roles, updatedAt: Date.now() },
+      },
+    ]);
+  }
+
+  if (data.materialTypes && Array.isArray(data.materialTypes)) {
+    setProgress('Restoring material types…');
+    await writeChunks([
+      {
+        ref: doc(db, 'users', uid, 'settings', 'materialTypes'),
+        data: { types: data.materialTypes, updatedAt: Date.now() },
+      },
+    ]);
+  }
+
+  if (data.contractorTrades && Array.isArray(data.contractorTrades)) {
+    setProgress('Restoring contractor trades…');
+    await writeChunks([
+      {
+        ref: doc(db, 'users', uid, 'settings', 'contractorTrades'),
+        data: { trades: data.contractorTrades, updatedAt: Date.now() },
       },
     ]);
   }
@@ -446,11 +491,21 @@ async function wipeAll(uid: string) {
     }
   }
 
-  // 3. Reset roles to defaults by removing ONLY the settings/roles doc.
-  //    Other settings documents (if added later) are deliberately preserved.
+  // 3. Remove ALL known settings docs. Anything else under settings is
+  //    left alone in case a future feature adds new settings.
+  for (const settingsId of ['roles', 'materialTypes', 'contractorTrades']) {
+    try {
+      await deleteDoc(doc(db, 'users', uid, 'settings', settingsId));
+    } catch {
+      /* may not exist — ignore */
+    }
+  }
+
+  // 4. Invalidate the cached system-health snapshot so the UI does not show
+  //    stale pre-wipe numbers on the next mount.
   try {
-    await deleteDoc(doc(db, 'users', uid, 'settings', 'roles'));
+    localStorage.removeItem(`jcwms-health-${uid}`);
   } catch {
-    /* roles doc may not exist — ignore */
+    /* storage may be blocked — ignore */
   }
 }

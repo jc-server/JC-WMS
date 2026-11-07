@@ -36,10 +36,6 @@ export type CommissionInput = Omit<
   'id' | 'createdAt' | 'status' | 'receivedAmount' | 'receivedDate'
 >;
 
-export type CommissionUpdate = Partial<
-  Omit<Commission, 'id' | 'createdAt' | 'receivedAmount' | 'status' | 'receivedDate'>
->;
-
 function commissionsPath(user: string) {
   return collection(db, 'users', user, 'commissions');
 }
@@ -111,26 +107,9 @@ export function useCommissions() {
         });
       } catch (err) {
         console.error('addCommission error:', err);
-        throw new Error('Could not save commission. Please check your connection and try again.');
-      }
-    },
-    [user]
-  );
-
-  /**
-   * Update editable fields on a commission. Amount is NOT editable here —
-   * changing it would invalidate `receivedAmount`/`status`, so the caller
-   * must delete and recreate the commission if they need to change the
-   * total.
-   */
-  const updateCommission = useCallback(
-    async (id: string, updates: CommissionUpdate) => {
-      if (!user) throw new Error('Not signed in.');
-      try {
-        await updateDoc(doc(db, 'users', user.uid, 'commissions', id), updates);
-      } catch (err) {
-        console.error('updateCommission error:', err);
-        throw new Error('Could not update commission. Please try again.');
+        throw new Error(
+          'Could not save commission. Please check your connection and try again.'
+        );
       }
     },
     [user]
@@ -145,7 +124,12 @@ export function useCommissions() {
 
       const remaining = Math.max(0, commission.amount - commission.receivedAmount);
       const applied = Math.min(amountReceivedNow, remaining);
-      const nextReceived = roundCurrency(commission.receivedAmount + applied);
+      // Round AFTER the clamp so rounding-up can never push receivedAmount
+      // past the commission amount (which would violate `receivedAmount <= amount`).
+      const nextReceived = Math.min(
+        roundCurrency(commission.receivedAmount + applied),
+        commission.amount
+      );
 
       let nextStatus: CommissionStatus = 'pending';
       if (nextReceived >= commission.amount) nextStatus = 'received';
@@ -200,7 +184,6 @@ export function useCommissions() {
     loading,
     error,
     addCommission,
-    updateCommission,
     recordReceipt,
     resetReceipt,
     deleteCommission,

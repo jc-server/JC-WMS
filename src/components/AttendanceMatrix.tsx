@@ -160,12 +160,6 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
     forceRender();
   };
 
-  /**
-   * FIX (race): only clear `isDirty` if the *same* entry object we saved is
-   * still the current one. Otherwise a slow save for edit #1 would clear the
-   * dirty flag on edit #2 that the user just made, and the next server
-   * snapshot would revert the UI to edit #1.
-   */
   const autoSave = useCallback(
     async (workerId: string) => {
       const entry = localRef.current[workerId];
@@ -201,11 +195,12 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
     autoSave(workerId);
   };
 
+  // ✅ Cap OT at 24h to match `validAttendance` (max 24) so a runaway
+  //    keystroke can never turn into a permission-denied on save.
   const setOvertime = (workerId: string, ot: number) => {
     if (getStatus(workerId) === 'absent') return;
-    updateLocalField(workerId, {
-      overtimeHours: Math.max(0, Math.round(ot * 100) / 100),
-    });
+    const clamped = Math.min(24, Math.max(0, Math.round(ot * 100) / 100));
+    updateLocalField(workerId, { overtimeHours: clamped });
     autoSave(workerId);
   };
 
@@ -215,7 +210,7 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
   const setAmountPaid = (workerId: string, amountPaid: number) =>
     updateLocalField(workerId, { amountPaid: Math.max(0, amountPaid) });
   const setRemarkField = (workerId: string, remark: string) =>
-    updateLocalField(workerId, { remark });
+    updateLocalField(workerId, { remark: remark.slice(0, 500) });
 
   const handleSaveWorker = async (workerId: string) => {
     const entry = localRef.current[workerId];
@@ -303,6 +298,10 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
     { present: 0, half: 0, absent: 0, holiday: 0, ot: 0 }
   );
 
+  // ✅ Live "any dirty / any saving" indicator so the toolbar badge is honest.
+  const anyDirty = Object.values(localRef.current).some((e) => e.isDirty);
+  const anySaving = savingWorkerId !== null;
+
   return (
     <div>
       <div className={`fixed bottom-20 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 ${
@@ -368,9 +367,23 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
           </>
         )}
         <div className="flex-1" />
-        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-100 dark:bg-zinc-800 text-xs font-semibold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-zinc-700">
-          <Check className="w-4 h-4 text-emerald-500" />
-          <span className="text-emerald-600 dark:text-emerald-400">Auto-saved</span>
+        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-100 dark:bg-zinc-800 text-xs font-semibold border border-slate-200 dark:border-zinc-700">
+          {anySaving ? (
+            <>
+              <Loader2 className="w-4 h-4 text-amber-500 animate-spin" />
+              <span className="text-amber-600 dark:text-amber-400">Saving…</span>
+            </>
+          ) : anyDirty ? (
+            <>
+              <Save className="w-4 h-4 text-amber-500" />
+              <span className="text-amber-600 dark:text-amber-400">Unsaved changes</span>
+            </>
+          ) : (
+            <>
+              <Check className="w-4 h-4 text-emerald-500" />
+              <span className="text-emerald-600 dark:text-emerald-400">All saved</span>
+            </>
+          )}
         </div>
       </div>
 
@@ -495,6 +508,7 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
                         type="number"
                         step="0.5"
                         min="0"
+                        max="24"
                         disabled={isAbsent}
                         value={ot}
                         onChange={(e) => setOvertime(worker.id, parseFloat(e.target.value) || 0)}
@@ -552,6 +566,7 @@ export default function AttendanceMatrix({ workers, onOpenProfile }: Props) {
                       type="text"
                       value={remark}
                       onChange={(e) => setRemarkField(worker.id, e.target.value)}
+                      maxLength={500}
                       className="flex-1 px-3 py-2 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 outline-none text-sm"
                       placeholder="e.g. Weekly cash advance, travel bonus"
                     />
@@ -670,6 +685,7 @@ function HolidayModal({
               autoFocus required
               value={reason}
               onChange={(e) => setReason(e.target.value)}
+              maxLength={500}
               className="w-full px-4 py-3 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all text-sm"
               placeholder="e.g. Diwali, Heavy Rain, Site Closed"
             />

@@ -27,6 +27,17 @@ import { roundCurrency } from '@/utils/calculations';
 type SubTab = 'payments' | 'contractors' | 'summary';
 type Toast = { msg: string; type: 'saved' | 'error' } | null;
 
+// Field length caps mirror `validContractor` / `validContractorPayment`.
+const LIMIT = {
+  name: 120,
+  trade: 60,
+  phone: 30,
+  notes: 1000,
+  workDescription: 500,
+  reference: 100,
+  remark: 500,
+} as const;
+
 export default function ContractorPayments() {
   const [subTab, setSubTab] = useState<SubTab>('payments');
   const [toast, setToast] = useState<Toast>(null);
@@ -694,6 +705,7 @@ function PaymentFormModal({
             <input
               value={workDescription}
               onChange={(e) => setWorkDescription(e.target.value)}
+              maxLength={LIMIT.workDescription}
               className={inputCls}
               placeholder="e.g. Wiring for 2nd floor, gate fabrication"
             />
@@ -703,6 +715,7 @@ function PaymentFormModal({
             <input
               value={reference}
               onChange={(e) => setReference(e.target.value)}
+              maxLength={LIMIT.reference}
               className={inputCls}
               placeholder="Cheque #, UPI txn ID, invoice #, etc."
             />
@@ -742,6 +755,7 @@ function PaymentFormModal({
             <input
               value={remark}
               onChange={(e) => setRemark(e.target.value)}
+              maxLength={LIMIT.remark}
               className={inputCls}
               placeholder="Optional"
             />
@@ -1093,6 +1107,7 @@ function ContractorFormModal({
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
+              maxLength={LIMIT.name}
               className={inputCls}
               placeholder="e.g. Ramesh (Lohar)"
             />
@@ -1115,7 +1130,6 @@ function ContractorFormModal({
                     >
                       {t}
                     </button>
-                    {/* Remove Trade Button */}
                     {!isActive && (
                       <button
                         type="button"
@@ -1130,7 +1144,6 @@ function ContractorFormModal({
                 );
               })}
 
-              {/* Add New Trade Form */}
               {isAdding ? (
                 <div className="flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 rounded-lg p-1 border border-slate-200 dark:border-zinc-700">
                   <input
@@ -1139,6 +1152,7 @@ function ContractorFormModal({
                     onChange={(e) => setNewTrade(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddNewTrade(); } }}
                     placeholder="New trade"
+                    maxLength={LIMIT.trade}
                     className="bg-transparent text-sm w-24 outline-none px-1 dark:text-white"
                   />
                   <button type="button" onClick={handleAddNewTrade} className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 rounded">
@@ -1164,6 +1178,7 @@ function ContractorFormModal({
             <input
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
+              maxLength={LIMIT.phone}
               className={inputCls}
               placeholder="Optional"
             />
@@ -1173,6 +1188,7 @@ function ContractorFormModal({
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
+              maxLength={LIMIT.notes}
               rows={2}
               className={`${inputCls} resize-none`}
               placeholder="Payment terms, rate notes, etc."

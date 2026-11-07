@@ -414,12 +414,19 @@ function AdvanceModal({
       setError('Please select a worker.');
       return;
     }
+    // ✅ Client-side guard: validAdvance requires amount > 0. Without this,
+    //    a 0 amount would fail with a cryptic "network error" toast.
+    const amt = parseFloat(amount) || 0;
+    if (amt <= 0) {
+      setError('Enter a valid amount greater than 0.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
       await addAdvance({
         workerId,
-        amount: parseFloat(amount) || 0,
+        amount: amt,
         date,
         reason: reason || null,
       });
@@ -470,7 +477,7 @@ function AdvanceModal({
               required
               type="number"
               step="0.01"
-              min="0"
+              min="0.01"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               className="w-full px-4 py-3 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all"
@@ -495,7 +502,8 @@ function AdvanceModal({
             </label>
             <input
               value={reason}
-              onChange={(e) => setReason(e.target.value)}
+              onChange={(e) => setReason(e.target.value.slice(0, 500))}
+              maxLength={500}
               className="w-full px-4 py-3 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all"
               placeholder="e.g. emergency loan, food advance"
             />

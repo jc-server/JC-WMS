@@ -5,6 +5,7 @@ import {
   onSnapshot,
   query,
   orderBy,
+  where,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
@@ -99,4 +100,61 @@ export function useAdvances() {
     getAdvancesForMonth,
     getAdvancesForWorker,
   };
+}
+
+/**
+ * Date-scoped advance subscription.
+ *
+ * Used by the App-level metrics ribbon which only needs *today's* advances.
+ * Using the full-list hook there streamed the entire history on every app
+ * open — this hook instead asks Firestore for just the matching day.
+ *
+ * `where('date', '==', date)` alone does not require a custom composite
+ * index — Firestore's auto single-field index handles it.
+ */
+export function useAdvancesForDate(date: string) {
+  const { user } = useAuth();
+  const [advances, setAdvances] = useState<Advance[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user || !date) {
+      setAdvances([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+
+    const q = query(advancesPath(user.uid), where('date', '==', date));
+
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const list: Advance[] = snap.docs.map((d) => {
+          const data = d.data() as Record<string, unknown>;
+          return {
+            id: d.id,
+            workerId: data.workerId as string,
+            amount: Number(data.amount ?? 0),
+            date: data.date as string,
+            reason: (data.reason as string) ?? null,
+            createdAt: Number(data.createdAt ?? 0),
+          };
+        });
+        setAdvances(list);
+        setLoading(false);
+      },
+      (err) => {
+        console.error('Advances-by-date listener error:', err.message);
+        setLoading(false);
+      }
+    );
+
+    return () => unsub();
+  }, [user, date]);
+
+  const total = advances.reduce((s, a) => s + a.amount, 0);
+
+  return { advances, loading, total };
 }

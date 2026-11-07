@@ -47,9 +47,18 @@ export function useRoleCascade(
 
   const cascadeDeleteRole = useCallback(
     async (role: string) => {
+      // Deleting the last remaining role would leave every affected worker
+      // pointing at a role that no longer exists — which then breaks the
+      // role picker on those workers. Block it instead.
+      if (roles.length <= 1) {
+        throw new Error(
+          'Cannot delete the last role. Add another role first.'
+        );
+      }
+
       await deleteRole(role);
 
-      const fallback = roles.filter((r) => r !== role)[0] ?? 'Worker';
+      const fallback = roles.filter((r) => r !== role)[0];
       const affected = workers.filter((w) => w.role === role);
       await Promise.all(
         affected.map((w) => updateWorker(w.id, { role: fallback }))

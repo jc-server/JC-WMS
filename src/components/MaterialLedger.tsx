@@ -11,7 +11,6 @@ import { CustomSelect } from '@/components/CustomSelect';
 import { useSites } from '@/hooks/useSites';
 import {
   useSuppliers,
-  SUPPLIER_TYPES,
   type Supplier,
   type SupplierType,
   type SupplierInput,
@@ -36,6 +35,23 @@ import { roundCurrency } from '@/utils/calculations';
 
 type SubTab = 'suppliers' | 'deliveries' | 'commissions' | 'khata';
 type Toast = { msg: string; type: 'saved' | 'error' } | null;
+
+// Field length caps mirror the Firestore rules so users can never type
+// a value that would silently fail validation on write.
+const LIMIT = {
+  supplierName: 120,
+  contactName: 100,
+  phone: 30,
+  address: 300,
+  gstin: 20,
+  notes: 1000,
+  materialType: 60,
+  billNumber: 60,
+  remark: 500,
+  reference: 100,
+  unit: 20,
+  truckCountMax: 10000,
+} as const;
 
 export default function MaterialLedger() {
   const [subTab, setSubTab] = useState<SubTab>('suppliers');
@@ -387,7 +403,7 @@ function SuppliersView({
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Supplier | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
-  
+
   const { types: masterTypes } = useMaterialTypes();
 
   const filtered = useMemo(() => {
@@ -677,6 +693,7 @@ function SupplierFormModal({
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
+              maxLength={LIMIT.supplierName}
               className={inputCls}
               placeholder="e.g. Sharma Brick Kiln"
             />
@@ -699,7 +716,6 @@ function SupplierFormModal({
                     >
                       {t}
                     </button>
-                    {/* Remove Material Button (only shows on hover if not selected) */}
                     {!isActive && (
                       <button
                         type="button"
@@ -714,7 +730,6 @@ function SupplierFormModal({
                 );
               })}
 
-              {/* Add New Material Form */}
               {isAdding ? (
                 <div className="flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 rounded-lg p-1 border border-slate-200 dark:border-zinc-700">
                   <input
@@ -723,6 +738,7 @@ function SupplierFormModal({
                     onChange={(e) => setNewType(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddNewType(); } }}
                     placeholder="New material"
+                    maxLength={LIMIT.materialType}
                     className="bg-transparent text-sm w-24 outline-none px-1 dark:text-white"
                   />
                   <button type="button" onClick={handleAddNewType} className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 rounded">
@@ -749,6 +765,7 @@ function SupplierFormModal({
               <input
                 value={contactName}
                 onChange={(e) => setContactName(e.target.value)}
+                maxLength={LIMIT.contactName}
                 className={inputCls}
                 placeholder="Optional"
               />
@@ -757,6 +774,7 @@ function SupplierFormModal({
               <input
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
+                maxLength={LIMIT.phone}
                 className={inputCls}
                 placeholder="Optional"
               />
@@ -767,6 +785,7 @@ function SupplierFormModal({
             <input
               value={address}
               onChange={(e) => setAddress(e.target.value)}
+              maxLength={LIMIT.address}
               className={inputCls}
               placeholder="Optional"
             />
@@ -776,6 +795,7 @@ function SupplierFormModal({
             <input
               value={gstin}
               onChange={(e) => setGstin(e.target.value)}
+              maxLength={LIMIT.gstin}
               className={inputCls}
               placeholder="Optional"
             />
@@ -785,6 +805,7 @@ function SupplierFormModal({
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
+              maxLength={LIMIT.notes}
               rows={2}
               className={`${inputCls} resize-none`}
               placeholder="Payment terms, credit period, etc."
@@ -1156,7 +1177,7 @@ function DeliveryFormModal({
           materialType: materialType.trim() || 'Other',
           quantity: parseFloat(quantity) || 0,
           unit,
-          truckCount: parseFloat(truckCount) || 0,
+          truckCount: Math.min(LIMIT.truckCountMax, parseFloat(truckCount) || 0),
           ratePerUnit: parseFloat(ratePerUnit) || 0,
           billAmount: bill,
           driverPaid: driverPaidNum,
@@ -1228,6 +1249,7 @@ function DeliveryFormModal({
               <input
                 value={billNumber}
                 onChange={(e) => setBillNumber(e.target.value)}
+                maxLength={LIMIT.billNumber}
                 className={inputCls}
                 placeholder="Optional"
               />
@@ -1252,7 +1274,7 @@ function DeliveryFormModal({
             </Field>
             <Field label="Truck Count">
               <input
-                type="number" step="1" min="0"
+                type="number" step="1" min="0" max={LIMIT.truckCountMax}
                 value={truckCount}
                 onChange={(e) => setTruckCount(e.target.value)}
                 className={inputCls} placeholder="0"
@@ -1321,6 +1343,7 @@ function DeliveryFormModal({
             <input
               value={remark}
               onChange={(e) => setRemark(e.target.value)}
+              maxLength={LIMIT.remark}
               className={inputCls}
               placeholder="Optional — e.g. 50% advance, balance on next trip"
             />
@@ -1646,7 +1669,7 @@ function CommissionFormModal({
         date,
         materialType: materialType.trim() || 'Other',
         quantity: parseFloat(quantity) || 0,
-        unit,
+        unit: unit.slice(0, LIMIT.unit),
         ratePerUnit: parseFloat(ratePerUnit) || 0,
         amount: amt,
         remark: remark.trim(),
@@ -1712,6 +1735,7 @@ function CommissionFormModal({
               <input
                 value={unit}
                 onChange={(e) => setUnit(e.target.value)}
+                maxLength={LIMIT.unit}
                 className={inputCls}
                 placeholder="cft / pieces / tons"
               />
@@ -1749,6 +1773,7 @@ function CommissionFormModal({
             <input
               value={remark}
               onChange={(e) => setRemark(e.target.value)}
+              maxLength={LIMIT.remark}
               className={inputCls}
               placeholder="e.g. Per-truck commission for site A"
             />
@@ -2288,6 +2313,7 @@ function PaymentFormModal({
             <input
               value={reference}
               onChange={(e) => setReference(e.target.value)}
+              maxLength={LIMIT.reference}
               className={inputCls}
               placeholder="Cheque #, UPI txn ID, etc."
             />
@@ -2296,6 +2322,7 @@ function PaymentFormModal({
             <input
               value={remark}
               onChange={(e) => setRemark(e.target.value)}
+              maxLength={LIMIT.remark}
               className={inputCls}
               placeholder="Optional"
             />

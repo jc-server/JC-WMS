@@ -8,7 +8,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useWorkers, type Worker } from '@/hooks/useWorkers';
 import { useAttendance } from '@/hooks/useAttendance';
-import { useAdvances } from '@/hooks/useAdvances';
+import { useAdvancesForDate } from '@/hooks/useAdvances';
 import AuthScreen from '@/components/AuthScreen';
 import WorkerManagement from '@/components/WorkerManagement';
 import AttendanceMatrix from '@/components/AttendanceMatrix';
@@ -52,12 +52,13 @@ export default function App() {
     permanentlyDeleteWorker,
   } = useWorkers();
   const { records: todayAtt } = useAttendance(todayStr());
-  const { advances } = useAdvances();
+
+  // ✅ FIX: Only fetch today's advances — not the entire history.
+  const { advances: todayAdvances } = useAdvancesForDate(todayStr());
+
   const [profileWorker, setProfileWorker] = useState<Worker | null>(null);
 
-  // FIX: Reset per-user UI state when the signed-in user changes. Otherwise
-  // a stale `profileWorker` from user A leaks into user B's session and any
-  // update would target the wrong path.
+  // Reset per-user UI state when the signed-in user changes.
   useEffect(() => {
     setProfileWorker(null);
     setTab('attendance');
@@ -86,9 +87,10 @@ export default function App() {
       otHours += ot;
     });
 
-    const khataAdvanceToday = advances
-      .filter((a) => a.date === todayStr())
-      .reduce((sum, a) => sum + a.amount, 0);
+    const khataAdvanceToday = todayAdvances.reduce(
+      (sum, a) => sum + a.amount,
+      0
+    );
 
     const attendanceAdvanceToday = Object.values(todayAtt).reduce(
       (sum, r) => sum + (r.advanceAmount ?? 0), 0
@@ -99,7 +101,7 @@ export default function App() {
       advancePayout: khataAdvanceToday + attendanceAdvanceToday,
       dailyCost,
     });
-  }, [workers, todayAtt, advances]);
+  }, [workers, todayAtt, todayAdvances]);
 
   if (loading) {
     return (
