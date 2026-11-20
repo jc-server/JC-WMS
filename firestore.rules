@@ -1,0 +1,48 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- Helper functions ----
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Guardrail against pathological writes: cap the number of top-level
+    // fields at 50. This is a shape/size guard, NOT a schema validator —
+    // it does not constrain field types or per-field string lengths
+    // (Firestore's own 1 MB document limit handles the extreme cases).
+    //
+    // (The previous version of this comment falsely claimed to reject
+    //  cross-namespace writes; the rule never did that and doesn't need
+    //  to — the path `users/{userId}/...` plus `isOwner()` already
+    //  guarantees the write lands in the caller's own namespace.)
+    function isSafeWrite() {
+      return request.resource.data.size() <= 50;
+    }
+
+    // ---- User profile document ----
+    match /users/{userId} {
+      allow get, list: if isOwner(userId);
+      allow create, update, delete: if isOwner(userId) && isSafeWrite();
+
+      // All sub-collections (workers, sites, attendance, advances,
+      // transactions, materialDeliveries, suppliers, contractorPayments,
+      // workerAdvances, supplierPayments, commissions, etc.) and the
+      // `settings/{doc}` singleton docs.
+      match /{collectionName}/{docId} {
+        allow get, list: if isOwner(userId);
+        allow create, update, delete: if isOwner(userId) && isSafeWrite();
+      }
+    }
+
+    // ---- Default: deny everything not explicitly allowed above ----
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
