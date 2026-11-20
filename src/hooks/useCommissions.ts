@@ -1,17 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   collection,
+  doc,
+  onSnapshot,
   addDoc,
   updateDoc,
   deleteDoc,
-  doc,
-  onSnapshot,
+  runTransaction,
   query,
   orderBy,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
-import { roundCurrency } from '@/utils/calculations';
 
 export type CommissionStatus = 'pending' | 'partial' | 'received';
 
@@ -24,21 +24,19 @@ export type Commission = {
   unit: string;
   ratePerUnit: number;
   amount: number;
+  remark: string;
+  siteId?: string | null;
   status: CommissionStatus;
   receivedAmount: number;
   receivedDate: string | null;
-  remark: string;
   createdAt: number;
+  updatedAt: number;
 };
 
 export type CommissionInput = Omit<
   Commission,
-  'id' | 'createdAt' | 'status' | 'receivedAmount' | 'receivedDate'
+  'id' | 'status' | 'receivedAmount' | 'receivedDate' | 'createdAt' | 'updatedAt'
 >;
-
-function commissionsPath(user: string) {
-  return collection(db, 'users', user, 'commissions');
-}
 
 export function useCommissions() {
   const { user } = useAuth();
@@ -53,35 +51,34 @@ export function useCommissions() {
       return;
     }
 
-    const q = query(
-      commissionsPath(user.uid),
-      orderBy('date', 'desc'),
-      orderBy('createdAt', 'desc')
-    );
+    setLoading(true);
+    const ref = collection(db, 'users', user.uid, 'commissions');
+    const q = query(ref, orderBy('date', 'desc'));
 
     const unsub = onSnapshot(
       q,
       (snap) => {
         const list: Commission[] = snap.docs.map((d) => {
-          const data = d.data() as Record<string, unknown>;
+          const data = d.data();
           return {
             id: d.id,
             supplierId: (data.supplierId as string) ?? '',
             date: (data.date as string) ?? '',
             materialType: (data.materialType as string) ?? '',
-            quantity: Number(data.quantity ?? 0),
+            quantity: (data.quantity as number) ?? 0,
             unit: (data.unit as string) ?? '',
-            ratePerUnit: Number(data.ratePerUnit ?? 0),
-            amount: Number(data.amount ?? 0),
-            status: ((data.status as CommissionStatus) ?? 'pending'),
-            receivedAmount: Number(data.receivedAmount ?? 0),
-            receivedDate: (data.receivedDate as string) ?? null,
+            ratePerUnit: (data.ratePerUnit as number) ?? 0,
+            amount: (data.amount as number) ?? 0,
             remark: (data.remark as string) ?? '',
-            createdAt: Number(data.createdAt ?? 0),
+            siteId: (data.siteId as string | null | undefined) ?? null,
+            status: (data.status as CommissionStatus) ?? 'pending',
+            receivedAmount: (data.receivedAmount as number) ?? 0,
+            receivedDate: (data.receivedDate as string | null) ?? null,
+            createdAt: (data.createdAt as number) ?? 0,
+            updatedAt: (data.updatedAt as number) ?? 0,
           };
         });
         setCommissions(list);
-        setError(null);
         setLoading(false);
       },
       (err) => {
@@ -95,97 +92,100 @@ export function useCommissions() {
   }, [user]);
 
   const addCommission = useCallback(
-    async (input: CommissionInput) => {
-      if (!user) throw new Error('Not signed in.');
-      try {
-        await addDoc(commissionsPath(user.uid), {
+    async (input: CommissionInput): Promise<void> => {
+      if (!user) throw new Error('Not authenticated');
+      const ref = collection(db, 'users', user.uid, 'commissions');
+      const now = Date.now();
+      await addDoc(ref, {
+        ...input,
+        siteId: input.siteId ?? null,
+        status: 'pending',
+        receivedAmount: 0,
+        receivedDate: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    },
+    [user]
+  );
+
+  const updateCommission = useCallback(
+    async (id: string, input: CommissionInput): Promise<void> => {
+      if (!user) throw new Error('Not authenticated');
+      const ref = doc(db, 'users', user.uid, 'commissions', id);
+      
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error('Commission not found');
+        
+        const current = snap.data();
+        const received = Number(current.receivedAmount) || 0;
+        
+        // Recalculate status if the new amount is lower than what's already been paid
+        let status: CommissionStatus = 'pending';
+        if (received >= input.amount && input.amount > 0) status = 'received';
+        else if (received > 0) status = 'partial';
+
+        tx.update(ref, {
           ...input,
-          status: 'pending',
-          receivedAmount: 0,
-          receivedDate: null,
-          createdAt: Date.now(),
+          siteId: input.siteId ?? null,
+          status,
+          updatedAt: Date.now(),
         });
-      } catch (err) {
-        console.error('addCommission error:', err);
-        throw new Error(
-          'Could not save commission. Please check your connection and try again.'
-        );
-      }
+      });
     },
     [user]
   );
 
   const recordReceipt = useCallback(
-    async (id: string, amountReceivedNow: number, date: string) => {
-      if (!user) throw new Error('Not signed in.');
-      const commission = commissions.find((c) => c.id === id);
-      if (!commission) throw new Error('Commission not found.');
-      if (amountReceivedNow <= 0) throw new Error('Enter a positive amount.');
-
-      const remaining = Math.max(0, commission.amount - commission.receivedAmount);
-      const applied = Math.min(amountReceivedNow, remaining);
-      // Round AFTER the clamp so rounding-up can never push receivedAmount
-      // past the commission amount (which would violate `receivedAmount <= amount`).
-      const nextReceived = Math.min(
-        roundCurrency(commission.receivedAmount + applied),
-        commission.amount
-      );
-
-      let nextStatus: CommissionStatus = 'pending';
-      if (nextReceived >= commission.amount) nextStatus = 'received';
-      else if (nextReceived > 0) nextStatus = 'partial';
-
-      try {
-        await updateDoc(doc(db, 'users', user.uid, 'commissions', id), {
-          receivedAmount: nextReceived,
-          status: nextStatus,
+    async (id: string, amount: number, date: string): Promise<void> => {
+      if (!user) throw new Error('Not authenticated');
+      if (!Number.isFinite(amount) || amount <= 0) throw new Error('Receipt amount must be positive.');
+      
+      const ref = doc(db, 'users', user.uid, 'commissions', id);
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error('Commission not found.');
+        const data = snap.data();
+        const total = Number(data.amount) || 0;
+        const current = Number(data.receivedAmount) || 0;
+        const next = current + amount;
+        
+        tx.update(ref, {
+          receivedAmount: next,
           receivedDate: date,
+          status: next >= total ? 'received' : 'partial',
+          updatedAt: Date.now(),
         });
-      } catch (err) {
-        console.error('recordReceipt error:', err);
-        throw new Error('Could not update commission. Please try again.');
-      }
+      });
     },
-    [user, commissions]
+    [user]
   );
 
   const resetReceipt = useCallback(
-    async (id: string) => {
-      if (!user) throw new Error('Not signed in.');
-      try {
-        await updateDoc(doc(db, 'users', user.uid, 'commissions', id), {
-          receivedAmount: 0,
-          status: 'pending',
-          receivedDate: null,
-        });
-      } catch (err) {
-        console.error('resetReceipt error:', err);
-        throw new Error('Could not reset commission. Please try again.');
-      }
+    async (id: string): Promise<void> => {
+      if (!user) throw new Error('Not authenticated');
+      const ref = doc(db, 'users', user.uid, 'commissions', id);
+      await updateDoc(ref, {
+        receivedAmount: 0,
+        receivedDate: null,
+        status: 'pending',
+        updatedAt: Date.now(),
+      });
     },
     [user]
   );
 
   const deleteCommission = useCallback(
-    async (id: string) => {
-      if (!user) throw new Error('Not signed in.');
-      try {
-        await deleteDoc(doc(db, 'users', user.uid, 'commissions', id));
-      } catch (err) {
-        console.error('deleteCommission error:', err);
-        throw new Error('Could not delete commission. Please try again.');
-      }
+    async (id: string): Promise<void> => {
+      if (!user) throw new Error('Not authenticated');
+      await deleteDoc(doc(db, 'users', user.uid, 'commissions', id));
     },
     [user]
   );
 
   return {
-    commissions,
-    loading,
-    error,
-    addCommission,
-    recordReceipt,
-    resetReceipt,
-    deleteCommission,
+    commissions, loading, error,
+    addCommission, updateCommission, recordReceipt, resetReceipt, deleteCommission,
   };
 }

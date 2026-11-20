@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { X, AlertTriangle, Loader2, Info } from 'lucide-react';
 
 type Variant = 'danger' | 'warning' | 'default' | 'info';
@@ -32,6 +32,57 @@ export default function ConfirmDialog({
   onConfirm,
   onCancel,
 }: Props) {
+  const [internalBusy, setInternalBusy] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previousActiveElement = useRef<HTMLElement | null>(null);
+
+  const effectiveBusy = busy || internalBusy;
+
+  // Save / restore focus around open.
+  useEffect(() => {
+    if (open) {
+      previousActiveElement.current = document.activeElement as HTMLElement | null;
+      const t = setTimeout(() => {
+        const firstButton = dialogRef.current?.querySelector<HTMLButtonElement>(
+          'button:not(:disabled)'
+        );
+        firstButton?.focus();
+      }, 0);
+      return () => clearTimeout(t);
+    } else if (previousActiveElement.current) {
+      previousActiveElement.current.focus?.();
+      previousActiveElement.current = null;
+    }
+  }, [open]);
+
+  // Esc-to-close + focus trap.
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !effectiveBusy) {
+        e.preventDefault();
+        onCancel();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+      );
+      if (!focusable || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [open, effectiveBusy, onCancel]);
+
   if (!open) return null;
 
   const accent = {
@@ -65,12 +116,32 @@ export default function ConfirmDialog({
 
   const Icon = accent.Icon;
 
+  const handleConfirm = async () => {
+    if (!onConfirm || effectiveBusy) return;
+    const result = onConfirm();
+    if (result && typeof (result as Promise<void>).then === 'function') {
+      setInternalBusy(true);
+      try {
+        await result;
+      } catch (err) {
+        console.error('Confirm action failed:', err);
+      } finally {
+        setInternalBusy(false);
+      }
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-      onClick={busy ? undefined : onCancel}
+      onClick={effectiveBusy ? undefined : onCancel}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-dialog-title"
+        aria-describedby="confirm-dialog-message"
         className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
@@ -78,17 +149,26 @@ export default function ConfirmDialog({
           <div
             className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${accent.iconBg}`}
           >
-            <Icon className={`w-5 h-5 ${accent.iconColor}`} />
+            <Icon className={`w-5 h-5 ${accent.iconColor}`} aria-hidden="true" />
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">{title}</h3>
-            <p className="text-sm text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">
+            <h3
+              id="confirm-dialog-title"
+              className="text-base font-bold text-slate-900 dark:text-white"
+            >
+              {title}
+            </h3>
+            <p
+              id="confirm-dialog-message"
+              className="text-sm text-slate-600 dark:text-slate-300 mt-1 leading-relaxed"
+            >
               {message}
             </p>
           </div>
           <button
             onClick={onCancel}
-            disabled={busy}
+            disabled={effectiveBusy}
+            aria-label="Close"
             className="p-1.5 -mt-1 -mr-1 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors disabled:opacity-50"
           >
             <X className="w-4 h-4" />
@@ -101,18 +181,18 @@ export default function ConfirmDialog({
           {mode === 'confirm' && (
             <button
               onClick={onCancel}
-              disabled={busy}
+              disabled={effectiveBusy}
               className="flex-1 py-2.5 text-slate-600 dark:text-slate-300 font-semibold rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors text-sm disabled:opacity-50 active:scale-95"
             >
               {cancelLabel}
             </button>
           )}
           <button
-            onClick={onConfirm}
-            disabled={busy}
+            onClick={handleConfirm}
+            disabled={effectiveBusy}
             className={`flex-1 py-2.5 font-semibold rounded-xl transition-colors text-sm flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95 ${accent.button}`}
           >
-            {busy && <Loader2 className="w-4 h-4 animate-spin" />}
+            {effectiveBusy && <Loader2 className="w-4 h-4 animate-spin" />}
             {mode === 'alert' ? confirmLabel || 'OK' : confirmLabel}
           </button>
         </div>

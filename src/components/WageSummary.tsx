@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import {
   Download, Loader2, X, TrendingDown, Wallet, BookOpen,
+  ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { useAdvances } from '@/hooks/useAdvances';
 import { useMonthlyAttendance } from '@/hooks/useAttendance';
 import type { Worker } from '@/hooks/useWorkers';
 import { rowsToCsv, downloadCsv } from '@/utils/csv';
-import { currentMonthStr, monthLabel, monthRange } from '@/utils/date';
+import { currentMonthStr, monthLabel, monthRange, addMonths } from '@/utils/date';
 import { calculateAggregateWages } from '@/utils/calculations';
 import { CustomSelect } from '@/components/CustomSelect';
 
@@ -163,12 +164,32 @@ export default function WageSummaryView({ workers, onOpenProfile }: Props) {
   return (
     <div>
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
-        <input
-          type="month"
-          value={month}
-          onChange={(e) => setMonth(e.target.value)}
-          className="px-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all text-slate-900 dark:text-white font-medium"
-        />
+        {/* Updated Month Selector with Arrows */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setMonth(addMonths(month, -1))}
+            className="p-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors active:scale-95"
+            title="Previous Month"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+
+          <input
+            type="month"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            className="px-4 py-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all text-slate-900 dark:text-white font-medium"
+          />
+
+          <button
+            onClick={() => setMonth(addMonths(month, 1))}
+            className="p-3 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors active:scale-95"
+            title="Next Month"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        </div>
+
         <div className="flex-1" />
         <button
           onClick={() => setShowAdvanceModal(true)}

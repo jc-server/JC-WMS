@@ -1,18 +1,26 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query,
-  orderBy, writeBatch,
+  collection,
+  doc,
+  onSnapshot,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  query,
+  orderBy,
+  writeBatch,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
-import { roundCurrency } from '@/utils/calculations';
 
-export type ContractorTrade = string;
+// ----------------------------------------------------------------------
+// TYPES & CONSTANTS
+// ----------------------------------------------------------------------
 
-export const CONTRACTOR_TRADES: ContractorTrade[] = [
-  'Lohar', 'Electrician', 'Plumber', 'Carpenter', 'Painter',
-  'Mason', 'Welder', 'Tiles', 'Other',
-];
+export const CONTRACTOR_PAYMENT_MODES = ['Cash', 'UPI', 'Bank Transfer', 'Cheque'] as const;
+export type ContractorPaymentMode = typeof CONTRACTOR_PAYMENT_MODES[number];
+
+export type ContractorTrade = string; // e.g. 'Lohar', 'Mistri', etc.
 
 export type Contractor = {
   id: string;
@@ -22,20 +30,10 @@ export type Contractor = {
   notes: string;
   active: boolean;
   createdAt: number;
+  updatedAt: number;
 };
 
-/** `active` is optional on input — omit on create (defaults to true). */
-export type ContractorInput = Omit<Contractor, 'id' | 'createdAt' | 'active'> & {
-  active?: boolean;
-};
-
-export type ContractorUpdate = Partial<ContractorInput>;
-
-export type ContractorPaymentMode = 'Cash' | 'UPI' | 'Bank Transfer' | 'Cheque';
-
-export const CONTRACTOR_PAYMENT_MODES: ContractorPaymentMode[] = [
-  'Cash', 'UPI', 'Bank Transfer', 'Cheque',
-];
+export type ContractorInput = Omit<Contractor, 'id' | 'createdAt' | 'updatedAt'>;
 
 export type ContractorPayment = {
   id: string;
@@ -48,22 +46,21 @@ export type ContractorPayment = {
   siteId: string | null;
   remark: string;
   createdAt: number;
+  updatedAt: number;
 };
 
-export type ContractorPaymentInput = Omit<ContractorPayment, 'id' | 'createdAt'> & {
+export type ContractorPaymentInput = Omit<ContractorPayment, 'id' | 'createdAt' | 'updatedAt'> & {
   logToSiteLedger?: boolean;
 };
 
-function contractorsPath(user: string) {
-  return collection(db, 'users', user, 'contractors');
-}
-function contractorPaymentsPath(user: string) {
-  return collection(db, 'users', user, 'contractorPayments');
-}
+// Firestore security rules cap `remark` at 500 chars for transaction
+// documents. Truncating here defensively so a long work description or
+// remark can never fail the whole batch and silently lose the payment.
+const MAX_REMARK_LEN = 500;
 
-/* ------------------------------------------------------------------ */
-/* Contractor directory                                                */
-/* ------------------------------------------------------------------ */
+// ----------------------------------------------------------------------
+// HOOK: useContractors
+// ----------------------------------------------------------------------
 
 export function useContractors() {
   const { user } = useAuth();
@@ -72,27 +69,35 @@ export function useContractors() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user) { setContractors([]); setLoading(false); return; }
+    if (!user) {
+      setContractors([]);
+      setLoading(false);
+      return;
+    }
 
-    const q = query(contractorsPath(user.uid), orderBy('createdAt', 'asc'));
+    setLoading(true);
+    const ref = collection(db, 'users', user.uid, 'contractors');
+    const q = query(ref, orderBy('name', 'asc'));
+
     const unsub = onSnapshot(
       q,
       (snap) => {
         const list: Contractor[] = snap.docs.map((d) => {
-          const data = d.data() as Record<string, unknown>;
+          const data = d.data();
           return {
             id: d.id,
             name: (data.name as string) ?? '',
-            trade: ((data.trade as ContractorTrade) ?? 'Other'),
+            trade: (data.trade as string) ?? 'Other',
             phone: (data.phone as string) ?? '',
             notes: (data.notes as string) ?? '',
-            active: data.active !== false,
-            createdAt: Number(data.createdAt ?? 0),
+            active: (data.active as boolean) ?? true,
+            createdAt: (data.createdAt as number) ?? 0,
+            updatedAt: (data.updatedAt as number) ?? 0,
           };
         });
         setContractors(list);
-        setError(null);
         setLoading(false);
+        setError(null);
       },
       (err) => {
         console.error('Contractors listener error:', err.message);
@@ -100,55 +105,58 @@ export function useContractors() {
         setLoading(false);
       }
     );
+
     return () => unsub();
   }, [user]);
 
-  const addContractor = useCallback(async (input: ContractorInput) => {
-    if (!user) throw new Error('Not signed in.');
-    try {
-      await addDoc(contractorsPath(user.uid), {
-        name: input.name,
-        trade: input.trade,
-        phone: input.phone,
-        notes: input.notes,
-        active: input.active ?? true,
-        createdAt: Date.now(),
+  const addContractor = useCallback(
+    async (input: ContractorInput) => {
+      if (!user) throw new Error('Not authenticated');
+      const ref = collection(db, 'users', user.uid, 'contractors');
+      const now = Date.now();
+      await addDoc(ref, {
+        ...input,
+        createdAt: now,
+        updatedAt: now,
       });
-    } catch (err) {
-      console.error('addContractor error:', err);
-      throw new Error('Could not add contractor. Please check your connection and try again.');
-    }
-  }, [user]);
-
-  const updateContractor = useCallback(
-    async (id: string, updates: ContractorUpdate) => {
-      if (!user) throw new Error('Not signed in.');
-      try {
-        await updateDoc(doc(db, 'users', user.uid, 'contractors', id), updates);
-      } catch (err) {
-        console.error('updateContractor error:', err);
-        throw new Error('Could not update contractor. Please try again.');
-      }
     },
     [user]
   );
 
-  const deleteContractor = useCallback(async (id: string) => {
-    if (!user) throw new Error('Not signed in.');
-    try {
-      await deleteDoc(doc(db, 'users', user.uid, 'contractors', id));
-    } catch (err) {
-      console.error('deleteContractor error:', err);
-      throw new Error('Could not delete contractor. Please try again.');
-    }
-  }, [user]);
+  const updateContractor = useCallback(
+    async (id: string, input: Partial<ContractorInput>) => {
+      if (!user) throw new Error('Not authenticated');
+      const ref = doc(db, 'users', user.uid, 'contractors', id);
+      await updateDoc(ref, {
+        ...input,
+        updatedAt: Date.now(),
+      });
+    },
+    [user]
+  );
 
-  return { contractors, loading, error, addContractor, updateContractor, deleteContractor };
+  const deleteContractor = useCallback(
+    async (id: string) => {
+      if (!user) throw new Error('Not authenticated');
+      const ref = doc(db, 'users', user.uid, 'contractors', id);
+      await deleteDoc(ref);
+    },
+    [user]
+  );
+
+  return {
+    contractors,
+    loading,
+    error,
+    addContractor,
+    updateContractor,
+    deleteContractor,
+  };
 }
 
-/* ------------------------------------------------------------------ */
-/* Contractor payments                                                 */
-/* ------------------------------------------------------------------ */
+// ----------------------------------------------------------------------
+// HOOK: useContractorPayments
+// ----------------------------------------------------------------------
 
 export function useContractorPayments() {
   const { user } = useAuth();
@@ -157,34 +165,38 @@ export function useContractorPayments() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user) { setPayments([]); setLoading(false); return; }
+    if (!user) {
+      setPayments([]);
+      setLoading(false);
+      return;
+    }
 
-    const q = query(
-      contractorPaymentsPath(user.uid),
-      orderBy('date', 'desc'),
-      orderBy('createdAt', 'desc')
-    );
+    setLoading(true);
+    const ref = collection(db, 'users', user.uid, 'contractorPayments');
+    const q = query(ref, orderBy('date', 'desc'));
+
     const unsub = onSnapshot(
       q,
       (snap) => {
         const list: ContractorPayment[] = snap.docs.map((d) => {
-          const data = d.data() as Record<string, unknown>;
+          const data = d.data();
           return {
             id: d.id,
             contractorId: (data.contractorId as string) ?? '',
             date: (data.date as string) ?? '',
-            amount: Number(data.amount ?? 0),
+            amount: (data.amount as number) ?? 0,
             workDescription: (data.workDescription as string) ?? '',
-            paymentMode: ((data.paymentMode as ContractorPaymentMode) ?? 'Cash'),
+            paymentMode: (data.paymentMode as ContractorPaymentMode) ?? 'Cash',
             reference: (data.reference as string) ?? '',
-            siteId: (data.siteId as string) ?? null,
+            siteId: (data.siteId as string | null) ?? null,
             remark: (data.remark as string) ?? '',
-            createdAt: Number(data.createdAt ?? 0),
+            createdAt: (data.createdAt as number) ?? 0,
+            updatedAt: (data.updatedAt as number) ?? 0,
           };
         });
         setPayments(list);
-        setError(null);
         setLoading(false);
+        setError(null);
       },
       (err) => {
         console.error('Contractor payments listener error:', err.message);
@@ -192,71 +204,124 @@ export function useContractorPayments() {
         setLoading(false);
       }
     );
+
     return () => unsub();
   }, [user]);
 
-  /**
-   * Saves a payment, and (optionally) mirrors it as a debit entry on the
-   * linked site's ledger in the SAME Firestore batch. Both writes commit
-   * atomically — the payment is never left without its site-ledger entry,
-   * and the site-ledger entry is never left without its payment.
-   *
-   * Category is trimmed to 100 chars so `validTransaction` (category
-   * ≤ 100) can never abort the batch on a long trade label.
-   */
   const addPayment = useCallback(
     async (
       input: ContractorPaymentInput,
       meta?: { contractorName?: string; trade?: string }
     ) => {
-      if (!user) throw new Error('Not signed in.');
-      const { logToSiteLedger, ...payload } = input;
-      const uid = user.uid;
-
+      if (!user) throw new Error('Not authenticated');
+      const now = Date.now();
       const batch = writeBatch(db);
-      const paymentRef = doc(collection(db, 'users', uid, 'contractorPayments'));
-      batch.set(paymentRef, { ...payload, createdAt: Date.now() });
 
-      if (logToSiteLedger && payload.siteId && payload.amount > 0) {
+      // 1. Contractor payment document.
+      const paymentRef = doc(collection(db, 'users', user.uid, 'contractorPayments'));
+      batch.set(paymentRef, {
+        contractorId: input.contractorId,
+        date: input.date,
+        amount: input.amount,
+        workDescription: input.workDescription,
+        paymentMode: input.paymentMode,
+        reference: input.reference,
+        siteId: input.siteId || null,
+        remark: input.remark,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      // 2. Optional bridge into the Site Ledger.
+      //
+      // The ledger is stored at `users/{uid}/sites/{siteId}/transactions`
+      // (see useTransactions.ts `siteTxPath`) — NOT at
+      // `users/{uid}/transactions`. The field shape must also match the
+      // `Transaction` type consumed by <SiteLedger />:
+      //   { type: 'debit' | 'credit', amount, date, category,
+      //     paymentMode, remark, createdAt }
+      //
+      // `ContractorPaymentMode` is exactly the same union as the ledger's
+      // `PaymentMode`, so `input.paymentMode` passes straight through.
+      if (input.logToSiteLedger && input.siteId && input.amount > 0) {
         const txRef = doc(
-          collection(db, 'users', uid, 'sites', payload.siteId, 'transactions')
+          collection(db, 'users', user.uid, 'sites', input.siteId, 'transactions')
         );
-        const category = `Contractor${meta?.trade ? ` - ${meta.trade}` : ''}`.slice(0, 100);
-        const remark = [
-          meta?.contractorName ?? 'Contractor',
-          payload.workDescription,
-          payload.reference ? `Ref ${payload.reference}` : '',
-        ].filter(Boolean).join(' · ').slice(0, 500);
+
+        // Fold every human-readable label into `remark` (the only free-text
+        // field the ledger type supports), then clamp to the rules' 500-char
+        // cap so the whole batch can't be rejected by validation.
+        const remark = (
+          `Contractor - ${meta?.trade || 'Work'}` +
+          `${meta?.contractorName ? ` (${meta.contractorName})` : ''}` +
+          `${input.workDescription ? ` · ${input.workDescription}` : ''}` +
+          `${input.remark && input.remark !== input.workDescription ? ` · ${input.remark}` : ''}`
+        ).slice(0, MAX_REMARK_LEN);
+
         batch.set(txRef, {
           type: 'debit',
-          amount: roundCurrency(payload.amount),
-          date: payload.date,
-          category,
-          paymentMode: payload.paymentMode,
+          amount: input.amount,
+          date: input.date,
+          category: 'Contractor',
+          paymentMode: input.paymentMode,
           remark,
-          createdAt: Date.now(),
+          createdAt: now,
         });
       }
 
-      try {
-        await batch.commit();
-      } catch (err) {
-        console.error('addPayment error:', err);
-        throw new Error('Could not save payment. Please check your connection and try again.');
-      }
+      await batch.commit();
     },
     [user]
   );
 
-  const deletePayment = useCallback(async (id: string) => {
-    if (!user) throw new Error('Not signed in.');
-    try {
-      await deleteDoc(doc(db, 'users', user.uid, 'contractorPayments', id));
-    } catch (err) {
-      console.error('deletePayment error:', err);
-      throw new Error('Could not delete payment. Please try again.');
-    }
-  }, [user]);
+  const updatePayment = useCallback(
+    async (
+      id: string,
+      input: ContractorPaymentInput,
+      // Kept for API symmetry with `addPayment`. Intentionally unused: on
+      // edit we do not touch the linked ledger row (the UI disables the
+      // "log to site ledger" toggle while editing, so no duplicate is
+      // created). Prefixed with `_` to satisfy the lint rule.
+      _meta?: { contractorName?: string; trade?: string }
+    ) => {
+      if (!user) throw new Error('Not authenticated');
+      const ref = doc(db, 'users', user.uid, 'contractorPayments', id);
 
-  return { payments, loading, error, addPayment, deletePayment };
+      // We only update the payment document here.
+      // If you need to update the linked site ledger entry on edit, you
+      // would need to query `users/{uid}/sites/{siteId}/transactions` for
+      // the row whose `referenceId === id` and update it too. For now the
+      // UI disables the bridge toggle on edit, so we leave the ledger alone.
+      await updateDoc(ref, {
+        contractorId: input.contractorId,
+        date: input.date,
+        amount: input.amount,
+        workDescription: input.workDescription,
+        paymentMode: input.paymentMode,
+        reference: input.reference,
+        siteId: input.siteId || null,
+        remark: input.remark,
+        updatedAt: Date.now(),
+      });
+    },
+    [user]
+  );
+
+  const deletePayment = useCallback(
+    async (id: string) => {
+      if (!user) throw new Error('Not authenticated');
+      const ref = doc(db, 'users', user.uid, 'contractorPayments', id);
+      await deleteDoc(ref);
+    },
+    [user]
+  );
+
+  return {
+    payments,
+    loading,
+    error,
+    addPayment,
+    updatePayment,
+    deletePayment,
+  };
 }

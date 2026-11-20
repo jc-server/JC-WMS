@@ -1,104 +1,123 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
-import { fileURLToPath, URL } from 'node:url';
+import path from 'node:path';
 
-// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      // `autoUpdate` → new SW version auto-activates on next visit.
+      // `immediate: true` in main.tsx's `registerSW` makes the update
+      // apply without requiring a manual refresh.
       registerType: 'autoUpdate',
-      injectRegister: 'auto',
-      includeAssets: ['favicon.ico', 'favicon.svg', 'favicon-96x96.png', 'apple-touch-icon.png', 'logo.png'],
+      // We register the SW ourselves in src/main.tsx so we control the
+      // timing and can hook into onNeedRefresh/onOfflineReady if desired.
+      injectRegister: null,
+      includeAssets: [
+        'favicon.ico',
+        'favicon.svg',
+        'favicon-96x96.png',
+        'apple-touch-icon.png',
+        'logo.png',
+      ],
       manifest: {
-        name: 'Jaiswal Construction',
-        short_name: 'JC',
-        description: 'Workers Management System',
-        theme_color: '#18181b',
+        name: 'Jaiswal Construction — Workers Management',
+        short_name: 'JCWMS',
+        description:
+          'Jaiswal Construction workers, attendance, wages, advances and site ledger management.',
+        theme_color: '#09090b',
         background_color: '#09090b',
         display: 'standalone',
-        orientation: 'portrait-primary',
+        orientation: 'portrait',
         start_url: '/',
         scope: '/',
         icons: [
           {
-            src: '/web-app-manifest-192x192.png',
+            src: 'web-app-manifest-192x192.png',
             sizes: '192x192',
             type: 'image/png',
-            purpose: 'any'
+            purpose: 'any',
           },
           {
-            src: '/web-app-manifest-192x192.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'maskable'
-          },
-          {
-            src: '/web-app-manifest-512x512.png',
+            src: 'web-app-manifest-512x512.png',
             sizes: '512x512',
             type: 'image/png',
-            purpose: 'any'
+            purpose: 'any',
           },
           {
-            src: '/web-app-manifest-512x512.png',
+            src: 'web-app-manifest-512x512.png',
             sizes: '512x512',
             type: 'image/png',
-            purpose: 'maskable'
+            purpose: 'maskable',
           },
-          {
-            src: '/apple-touch-icon.png',
-            sizes: '180x180',
-            type: 'image/png',
-            purpose: 'any'
-          }
-        ]
+        ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp}'],
-        // NOTE: We intentionally do NOT runtime-cache Firestore API calls.
-        // The Firebase SDK uses its own WebChannel/gRPC transport plus an
-        // IndexedDB-backed persistent cache (see src/lib/firebase.ts) — a
-        // second HTTP cache layer here is redundant and can serve stale data.
+        // Precache every build artifact so the app cold-starts offline.
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff,woff2}'],
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [
+          /^\/api\//,
+          // Vercel Analytics beacons must always hit the real network.
+          /^\/_vercel\//,
+        ],
+        // NEVER cache Firebase. Firestore owns its own IndexedDB cache
+        // (persistentLocalCache). Proxying Firebase calls through the SW
+        // would corrupt that cache and break auth.
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'google-fonts-cache',
-              expiration: {
-                maxEntries: 10,
-                maxAgeSeconds: 60 * 60 * 24 * 365 // <== 365 days
-              },
-              cacheableResponse: {
-                statuses: [0, 200]
-              }
-            }
+            urlPattern: /^https:\/\/firestore\.googleapis\.com\/.*/i,
+            handler: 'NetworkOnly',
           },
           {
-            urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
-            handler: 'CacheFirst',
+            urlPattern: /^https:\/\/identitytoolkit\.googleapis\.com\/.*/i,
+            handler: 'NetworkOnly',
+          },
+          {
+            urlPattern: /^https:\/\/securetoken\.googleapis\.com\/.*/i,
+            handler: 'NetworkOnly',
+          },
+          {
+            urlPattern: /^https:\/\/.*\.gstatic\.com\/.*/i,
+            handler: 'StaleWhileRevalidate',
             options: {
-              cacheName: 'gstatic-fonts-cache',
+              cacheName: 'gstatic',
               expiration: {
-                maxEntries: 10,
-                maxAgeSeconds: 60 * 60 * 24 * 365 // <== 365 days
+                maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
               },
-              cacheableResponse: {
-                statuses: [0, 200]
-              }
-            }
-          }
-        ]
-      }
-    })
+            },
+          },
+        ],
+      },
+      // Keep SW disabled in dev — only enable temporarily if you need
+      // to debug offline behavior locally. Otherwise it interferes with
+      // HMR and can serve stale bundles.
+      devOptions: {
+        enabled: false,
+      },
+    }),
   ],
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      '@': path.resolve(__dirname, './src'),
     },
   },
-  optimizeDeps: {
-    exclude: ['lucide-react'],
+  server: {
+    port: 5173,
+  },
+  build: {
+    sourcemap: false,
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Splits the Firebase SDK (~280 KB) and React (~140 KB) into
+          // separate chunks so first-paint isn't blocked by either.
+          firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore'],
+          react: ['react', 'react-dom'],
+        },
+      },
+    },
   },
 });

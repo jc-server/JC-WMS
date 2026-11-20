@@ -1,7 +1,12 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
-type Props = { children: ReactNode };
+type Props = {
+  children: ReactNode;
+  /** Optional hook for wiring up Sentry/Rollbar without coupling this file
+   *  to a specific vendor. Called on every caught error. */
+  onError?: (error: Error, info: ErrorInfo) => void;
+};
 type State = { error: Error | null };
 
 export default class ErrorBoundary extends Component<Props, State> {
@@ -13,6 +18,12 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('Uncaught render error:', error, info.componentStack);
+    try {
+      this.props.onError?.(error, info);
+    } catch (reportingError) {
+      // Never let a broken error reporter take down the boundary itself.
+      console.error('ErrorBoundary onError handler threw:', reportingError);
+    }
   }
 
   handleReload = () => window.location.reload();
@@ -22,7 +33,11 @@ export default class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.error) {
       return (
-        <div className="min-h-screen bg-slate-100 dark:bg-zinc-950 flex items-center justify-center p-6">
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="min-h-screen bg-slate-100 dark:bg-zinc-950 flex items-center justify-center p-6"
+        >
           <div className="max-w-md w-full text-center bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl p-8 border border-slate-200 dark:border-zinc-800">
             <div className="w-16 h-16 bg-red-100 dark:bg-red-950/40 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <AlertTriangle className="w-8 h-8 text-red-600 dark:text-red-400" />

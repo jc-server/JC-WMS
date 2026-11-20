@@ -3,6 +3,7 @@ import {
   collection,
   addDoc,
   deleteDoc,
+  updateDoc, // <-- Added for editing
   doc,
   onSnapshot,
   query,
@@ -121,6 +122,22 @@ export function useTransactions(siteId: string | null) {
     [user, siteId]
   );
 
+  const updateTransaction = useCallback(
+    async (id: string, input: TransactionInput) => {
+      if (!user || !siteId) throw new Error('No active site selected.');
+      try {
+        const ref = doc(db, 'users', user.uid, 'sites', siteId, 'transactions', id);
+        await updateDoc(ref, {
+          ...input,
+        });
+      } catch (err) {
+        console.error('updateTransaction error:', err);
+        throw new Error('Could not update transaction. Please try again.');
+      }
+    },
+    [user, siteId]
+  );
+
   const deleteTransaction = useCallback(
     async (id: string) => {
       if (!user || !siteId) throw new Error('No active site selected.');
@@ -136,5 +153,12 @@ export function useTransactions(siteId: string | null) {
     [user, siteId]
   );
 
-  return { transactions, loading, error, addTransaction, deleteTransaction };
+  return { 
+    transactions, 
+    loading, 
+    error, 
+    addTransaction, 
+    updateTransaction, // <-- Exported
+    deleteTransaction 
+  };
 }

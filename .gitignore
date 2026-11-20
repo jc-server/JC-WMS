@@ -1,3 +1,22 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Build output
+dist
+dist-ssr
+build
+dev-dist
+
+# TypeScript incremental build artifacts (DO NOT COMMIT)
+*.tsbuildinfo
+
+
+# Vite cache
+.vite
+
+# Logs
 logs
 *.log
 npm-debug.log*
@@ -6,19 +25,34 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# Env files — keep the template, ignore the real ones
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+!.env.example
 
+# Editor / OS
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-.env
+
+# Firebase
+.firebase
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Vercel
+.vercel
+
+# Temp
 temp

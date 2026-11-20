@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useId } from 'react';
 import { Mail, Lock, Loader2, AlertCircle, Building2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
@@ -9,6 +9,8 @@ export default function AuthScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const emailId = useId();
+  const passwordId = useId();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +34,7 @@ export default function AuthScreen() {
                 onError={() => setImgError(true)}
               />
             ) : (
-              <Building2 className="w-10 h-10 text-amber-400" />
+              <Building2 className="w-10 h-10 text-amber-400" aria-hidden="true" />
             )}
           </div>
           <h1 className="text-3xl font-bold text-white tracking-tight">Jaiswal Construction</h1>
@@ -47,12 +49,23 @@ export default function AuthScreen() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">Email</label>
+              <label
+                htmlFor={emailId}
+                className="block text-sm font-medium text-slate-300 mb-1.5"
+              >
+                Email
+              </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                <Mail
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500"
+                  aria-hidden="true"
+                />
                 <input
+                  id={emailId}
                   type="email"
                   required
+                  autoComplete="email"
+                  autoFocus
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full pl-11 pr-4 py-3 bg-zinc-950 text-white rounded-xl border border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all"
@@ -62,12 +75,22 @@ export default function AuthScreen() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">Password</label>
+              <label
+                htmlFor={passwordId}
+                className="block text-sm font-medium text-slate-300 mb-1.5"
+              >
+                Password
+              </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                <Lock
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500"
+                  aria-hidden="true"
+                />
                 <input
+                  id={passwordId}
                   type="password"
                   required
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-11 pr-4 py-3 bg-zinc-950 text-white rounded-xl border border-zinc-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all"
@@ -77,8 +100,11 @@ export default function AuthScreen() {
             </div>
 
             {error && (
-              <div className="flex items-start gap-2 text-red-400 text-sm bg-red-950/40 border border-red-800/50 rounded-xl p-3">
-                <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+              <div
+                role="alert"
+                className="flex items-start gap-2 text-red-400 text-sm bg-red-950/40 border border-red-800/50 rounded-xl p-3"
+              >
+                <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" aria-hidden="true" />
                 <span>{error}</span>
               </div>
             )}
@@ -88,7 +114,7 @@ export default function AuthScreen() {
               disabled={loading}
               className="w-full py-3 bg-amber-400 text-slate-900 font-bold rounded-xl hover:bg-amber-300 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 active:scale-[0.98]"
             >
-              {loading && <Loader2 className="w-5 h-5 animate-spin" />}
+              {loading && <Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" />}
               Sign In to Dashboard
             </button>
           </form>

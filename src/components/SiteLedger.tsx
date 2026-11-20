@@ -10,7 +10,7 @@ import { useSites } from '@/hooks/useSites';
 import { useWorkers } from '@/hooks/useWorkers';
 import {
   useTransactions, CREDIT_CATEGORIES, DEBIT_CATEGORIES, PAYMENT_MODES,
-  type TransactionInput, type TransactionType, type PaymentMode,
+  type TransactionInput, type TransactionType, type PaymentMode, type Transaction,
 } from '@/hooks/useTransactions';
 import { useWageCalculator } from '@/hooks/useWageCalculator';
 import type { Worker } from '@/hooks/useWorkers';
@@ -21,10 +21,9 @@ import { rowsToCsv, downloadCsv } from '@/utils/csv';
 const LABOUR_CATEGORY = 'Labour / Worker Wages';
 const DEBIT_CATEGORIES_WITH_LABOUR: string[] = [LABOUR_CATEGORY, ...DEBIT_CATEGORIES];
 
-// Field length caps mirror the other remark inputs in the app for
-// consistency. `validTransaction` does not validate `remark`, so this is
-// cosmetic — it just keeps the maximum consistent across the codebase.
 const REMARK_MAX = 500;
+
+type LedgerFilterType = 'all' | 'credit' | 'debit' | 'labour';
 
 export default function SiteLedger() {
   const [siteId, setSiteId] = useState<string | null>(
@@ -32,7 +31,9 @@ export default function SiteLedger() {
   );
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
     if (siteId) localStorage.setItem('jcwms-ledger-site', siteId);
+    else localStorage.removeItem('jcwms-ledger-site');
   }, [siteId]);
 
   const { sites, updateSite } = useSites();
@@ -43,6 +44,7 @@ export default function SiteLedger() {
     loading: txLoading,
     error: txError,
     addTransaction,
+    updateTransaction, // <-- Destructured
     deleteTransaction,
   } = useTransactions(siteId);
 
@@ -52,6 +54,10 @@ export default function SiteLedger() {
   const [showExpense, setShowExpense] = useState(false);
   const [showBookLabour, setShowBookLabour] = useState(false);
   const [showEditSite, setShowEditSite] = useState(false);
+  
+  // State for editing a transaction
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+
   const [pendingDelete, setPendingDelete] = useState<{
     id: string;
     category: string;
@@ -60,7 +66,7 @@ export default function SiteLedger() {
   const [deletingBusy, setDeletingBusy] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'saved' | 'error' } | null>(null);
 
-  const [filterType, setFilterType] = useState<'all' | 'credit' | 'debit' | 'labour'>('all');
+  const [filterType, setFilterType] = useState<LedgerFilterType>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -288,7 +294,7 @@ export default function SiteLedger() {
         </div>
         <CustomSelect
           value={filterType}
-          onChange={(val) => setFilterType(val as any)}
+          onChange={(val) => setFilterType(val as LedgerFilterType)}
           options={[
             { value: 'all', label: 'All Types' },
             { value: 'credit', label: 'Client Receipts' },
@@ -348,7 +354,7 @@ export default function SiteLedger() {
                   <th className="text-left  px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider hidden sm:table-cell">Mode</th>
                   <th className="text-left  px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider hidden md:table-cell">Remark</th>
                   <th className="text-right px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Amount</th>
-                  <th className="px-2"></th>
+                  <th className="px-2 py-3"></th>
                 </tr>
               </thead>
               <tbody>
@@ -404,19 +410,28 @@ export default function SiteLedger() {
                         {isCredit ? '+' : '−'}₹{r.amount.toFixed(0)}
                       </td>
                       <td className="px-2 py-3 text-right">
-                        <button
-                          onClick={() =>
-                            setPendingDelete({
-                              id: r.id,
-                              category: r.category,
-                              amount: r.amount,
-                            })
-                          }
-                          className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
-                          title="Delete transaction"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => setEditingTx(r)}
+                            className="p-1.5 text-slate-300 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-lg transition-colors"
+                            title="Edit transaction"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() =>
+                              setPendingDelete({
+                                id: r.id,
+                                category: r.category,
+                                amount: r.amount,
+                              })
+                            }
+                            className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
+                            title="Delete transaction"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -458,6 +473,20 @@ export default function SiteLedger() {
             await addTransaction(input);
             showToast('Labour payout booked', 'saved');
             setShowBookLabour(false);
+          }}
+        />
+      )}
+
+      {/* EDIT MODAL */}
+      {editingTx && (
+        <TransactionModal
+          mode={editingTx.type}
+          initialData={editingTx}
+          onClose={() => setEditingTx(null)}
+          onSave={async (input) => {
+            await updateTransaction(editingTx.id, input);
+            showToast('Transaction updated', 'saved');
+            setEditingTx(null);
           }}
         />
       )}
@@ -529,23 +558,27 @@ function SummaryCard({
   );
 }
 
+// Updated to accept `initialData` for editing
 function TransactionModal({
   mode,
   onClose,
   onSave,
+  initialData,
 }: {
   mode: TransactionType;
   onClose: () => void;
   onSave: (input: TransactionInput) => Promise<void>;
+  initialData?: Transaction;
 }) {
   const isCredit = mode === 'credit';
   const categories: string[] = isCredit ? [...CREDIT_CATEGORIES] : DEBIT_CATEGORIES_WITH_LABOUR;
 
-  const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(todayStr);
-  const [category, setCategory] = useState<string>(categories[0]);
-  const [paymentMode, setPaymentMode] = useState<PaymentMode>('Cash');
-  const [remark, setRemark] = useState('');
+  const [amount, setAmount] = useState(initialData ? initialData.amount.toString() : '');
+  const [date, setDate] = useState(initialData ? initialData.date : todayStr());
+  const [category, setCategory] = useState<string>(initialData ? initialData.category : categories[0]);
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>(initialData ? initialData.paymentMode : 'Cash');
+  const [remark, setRemark] = useState(initialData ? initialData.remark : '');
+  
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -573,6 +606,14 @@ function TransactionModal({
     }
   };
 
+  const modalTitle = initialData 
+    ? 'Edit Transaction' 
+    : (isCredit ? 'Receive Client Payment' : 'Add Site Expense');
+
+  const buttonText = initialData 
+    ? 'Save Changes' 
+    : (isCredit ? 'Record Payment' : 'Record Expense');
+
   return (
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
@@ -598,7 +639,7 @@ function TransactionModal({
               )}
             </div>
             <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-              {isCredit ? 'Receive Client Payment' : 'Add Site Expense'}
+              {modalTitle}
             </h2>
           </div>
           <button
@@ -706,7 +747,7 @@ function TransactionModal({
             className="w-full py-3 bg-slate-900 dark:bg-amber-400 text-white dark:text-slate-900 font-bold rounded-xl hover:bg-slate-800 dark:hover:bg-amber-300 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 active:scale-[0.98]"
           >
             {saving && <Loader2 className="w-5 h-5 animate-spin" />}
-            {isCredit ? 'Record Payment' : 'Record Expense'}
+            {buttonText}
           </button>
         </form>
       </div>

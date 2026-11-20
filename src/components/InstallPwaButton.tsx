@@ -53,11 +53,11 @@ export default function InstallPwaButton() {
   return (
     <button
       onClick={handleInstallClick}
-      className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg shadow-sm transition-all active:scale-95 animate-pulse"
+      className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg shadow-sm transition-all active:scale-95"
       title="Install JC App"
     >
-      <Download className="w-3.5 h-3.5" />
-      <span className="hidden xs:inline">Install App</span>
+      <Download className="w-3.5 h-3.5" aria-hidden="true" />
+      <span>Install App</span>
     </button>
   );
 }

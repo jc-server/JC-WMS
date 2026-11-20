@@ -27,7 +27,6 @@ import { roundCurrency } from '@/utils/calculations';
 type SubTab = 'payments' | 'contractors' | 'summary';
 type Toast = { msg: string; type: 'saved' | 'error' } | null;
 
-// Field length caps mirror `validContractor` / `validContractorPayment`.
 const LIMIT = {
   name: 120,
   trade: 60,
@@ -50,13 +49,16 @@ export default function ContractorPayments() {
     updateContractor,
     deleteContractor,
   } = useContractors();
+  
   const {
     payments,
     loading: paymentsLoading,
     error: paymentsError,
     addPayment,
+    updatePayment,
     deletePayment,
   } = useContractorPayments();
+  
   const { sites } = useSites();
 
   const showToast = (msg: string, type: 'saved' | 'error') => {
@@ -211,6 +213,7 @@ export default function ContractorPayments() {
           loading={paymentsLoading}
           error={paymentsError}
           onAdd={addPayment}
+          onUpdate={updatePayment}
           onDelete={deletePayment}
           showToast={showToast}
         />
@@ -299,7 +302,7 @@ function Field({
 
 function PaymentsView({
   payments, contractors, contractorById, sites, siteName, loading, error,
-  onAdd, onDelete, showToast,
+  onAdd, onUpdate, onDelete, showToast,
 }: {
   payments: ContractorPayment[];
   contractors: Contractor[];
@@ -312,6 +315,11 @@ function PaymentsView({
     input: Parameters<ReturnType<typeof useContractorPayments>['addPayment']>[0],
     meta?: { contractorName?: string; trade?: string }
   ) => Promise<void>;
+  onUpdate: (
+    id: string,
+    input: Parameters<ReturnType<typeof useContractorPayments>['addPayment']>[0],
+    meta?: { contractorName?: string; trade?: string }
+  ) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   showToast: (msg: string, type: 'saved' | 'error') => void;
 }) {
@@ -319,7 +327,9 @@ function PaymentsView({
   const [tradeFilter, setTradeFilter] = useState<'all' | ContractorTrade>('all');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  
   const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<ContractorPayment | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ContractorPayment | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
 
@@ -421,7 +431,7 @@ function PaymentsView({
           <Download className="w-4 h-4" /> Export
         </button>
         <button
-          onClick={() => setShowForm(true)}
+          onClick={() => { setEditing(null); setShowForm(true); }}
           disabled={contractors.length === 0}
           className="flex items-center justify-center gap-2 px-5 py-3 bg-slate-900 dark:bg-amber-400 text-white dark:text-slate-900 font-semibold rounded-xl hover:bg-slate-800 dark:hover:bg-amber-300 transition-colors whitespace-nowrap disabled:opacity-50"
           title={contractors.length === 0 ? 'Add a contractor first' : 'Log a payment'}
@@ -486,7 +496,7 @@ function PaymentsView({
                   return (
                     <tr
                       key={p.id}
-                      className="border-b border-slate-100 dark:border-zinc-800 hover:bg-slate-50/60 dark:hover:bg-zinc-800/40 transition-colors"
+                      className="border-b border-slate-100 dark:border-zinc-800 hover:bg-slate-50/60 dark:hover:bg-zinc-800/40 transition-colors group"
                     >
                       <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
                         {new Date(p.date + 'T00:00:00').toLocaleDateString('en-IN', {
@@ -517,13 +527,22 @@ function PaymentsView({
                         ₹{p.amount.toFixed(0)}
                       </td>
                       <td className="px-2 py-3 text-right">
-                        <button
-                          onClick={() => setPendingDelete(p)}
-                          className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
-                          title="Delete payment"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => { setEditing(p); setShowForm(true); }}
+                            className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-lg transition-colors"
+                            title="Edit payment"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setPendingDelete(p)}
+                            className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
+                            title="Delete payment"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -536,12 +555,18 @@ function PaymentsView({
 
       {showForm && (
         <PaymentFormModal
+          payment={editing}
           contractors={contractors}
           sites={sites}
           onClose={() => setShowForm(false)}
           onSave={async (input, meta) => {
-            await onAdd(input, meta);
-            showToast('Payment recorded.', 'saved');
+            if (editing) {
+              await onUpdate(editing.id, input, meta);
+              showToast('Payment updated.', 'saved');
+            } else {
+              await onAdd(input, meta);
+              showToast('Payment recorded.', 'saved');
+            }
             setShowForm(false);
           }}
         />
@@ -569,8 +594,9 @@ function PaymentsView({
 }
 
 function PaymentFormModal({
-  contractors, sites, onClose, onSave,
+  payment, contractors, sites, onClose, onSave,
 }: {
+  payment: ContractorPayment | null;
   contractors: Contractor[];
   sites: { id: string; name: string }[];
   onClose: () => void;
@@ -579,15 +605,16 @@ function PaymentFormModal({
     meta?: { contractorName?: string; trade?: string }
   ) => Promise<void>;
 }) {
-  const [contractorId, setContractorId] = useState(contractors[0]?.id ?? '');
-  const [date, setDate] = useState(todayStr);
-  const [amount, setAmount] = useState('');
-  const [workDescription, setWorkDescription] = useState('');
-  const [paymentMode, setPaymentMode] = useState<ContractorPaymentMode>('Cash');
-  const [reference, setReference] = useState('');
-  const [siteId, setSiteId] = useState<string>('');
-  const [logToSite, setLogToSite] = useState(true);
-  const [remark, setRemark] = useState('');
+  const isEditing = !!payment;
+  const [contractorId, setContractorId] = useState(payment?.contractorId ?? contractors[0]?.id ?? '');
+  const [date, setDate] = useState(payment?.date ?? todayStr);
+  const [amount, setAmount] = useState(payment ? String(payment.amount) : '');
+  const [workDescription, setWorkDescription] = useState(payment?.workDescription ?? '');
+  const [paymentMode, setPaymentMode] = useState<ContractorPaymentMode>(payment?.paymentMode ?? 'Cash');
+  const [reference, setReference] = useState(payment?.reference ?? '');
+  const [siteId, setSiteId] = useState<string>(payment?.siteId ?? '');
+  const [logToSite, setLogToSite] = useState(false);
+  const [remark, setRemark] = useState(payment?.remark ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -598,7 +625,7 @@ function PaymentFormModal({
   }, [contractors, contractorId]);
 
   const amtNum = parseFloat(amount) || 0;
-  const canBridge = Boolean(siteId) && amtNum > 0;
+  const canBridge = !isEditing && Boolean(siteId) && amtNum > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -648,7 +675,9 @@ function PaymentFormModal({
             <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-emerald-100 dark:bg-emerald-950/40">
               <HandCoins className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <h2 className="text-base font-bold text-slate-900 dark:text-white">Log Contractor Payment</h2>
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">
+              {isEditing ? 'Edit Contractor Payment' : 'Log Contractor Payment'}
+            </h2>
           </div>
           <button
             onClick={onClose}
@@ -696,7 +725,8 @@ function PaymentFormModal({
               <CustomSelect
                 value={paymentMode}
                 onChange={(val) => setPaymentMode(val as ContractorPaymentMode)}
-                options={CONTRACTOR_PAYMENT_MODES}
+                // FIXED: Spreading the readonly array to a mutable array
+                options={[...CONTRACTOR_PAYMENT_MODES]}
               />
             </Field>
           </div>
@@ -773,7 +803,7 @@ function PaymentFormModal({
             className="w-full py-3 bg-slate-900 dark:bg-amber-400 text-white dark:text-slate-900 font-bold rounded-xl hover:bg-slate-800 dark:hover:bg-amber-300 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 active:scale-[0.98]"
           >
             {saving && <Loader2 className="w-5 h-5 animate-spin" />}
-            Save Payment
+            {isEditing ? 'Save Changes' : 'Save Payment'}
           </button>
         </form>
       </div>

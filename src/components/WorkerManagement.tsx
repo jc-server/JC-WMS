@@ -13,6 +13,8 @@ type Props = {
   onOpenProfile: (worker: Worker) => void;
 };
 
+type StatusFilter = 'all' | 'active' | 'inactive';
+
 export default function WorkerManagement({ onOpenProfile }: Props) {
   const {
     workers,
@@ -30,12 +32,13 @@ export default function WorkerManagement({ onOpenProfile }: Props) {
 
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('active');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Worker | null>(null);
   const [showRolesModal, setShowRolesModal] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Worker | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
+  const [reactivatingId, setReactivatingId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
@@ -78,10 +81,14 @@ export default function WorkerManagement({ onOpenProfile }: Props) {
   };
 
   const handleReactivate = async (worker: Worker) => {
+    if (reactivatingId) return;
+    setReactivatingId(worker.id);
     try {
       await reactivateWorker(worker.id);
     } catch (err) {
       setErrorMessage((err as Error).message);
+    } finally {
+      setReactivatingId(null);
     }
   };
 
@@ -108,7 +115,7 @@ export default function WorkerManagement({ onOpenProfile }: Props) {
         />
         <CustomSelect
           value={statusFilter}
-          onChange={(val) => setStatusFilter(val as any)}
+          onChange={(val) => setStatusFilter(val as StatusFilter)}
           options={[
             { value: 'active', label: `Active (${activeCount})` },
             { value: 'inactive', label: `Inactive (${inactiveCount})` },
@@ -212,10 +219,15 @@ export default function WorkerManagement({ onOpenProfile }: Props) {
                         e.stopPropagation();
                         handleReactivate(worker);
                       }}
-                      className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors"
+                      disabled={reactivatingId === worker.id}
+                      className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors disabled:opacity-50"
                       title="Reactivate"
                     >
-                      <RotateCcw className="w-4 h-4" />
+                      {reactivatingId === worker.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <RotateCcw className="w-4 h-4" />
+                      )}
                     </button>
                   )}
                 </div>

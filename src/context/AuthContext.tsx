@@ -24,6 +24,14 @@ function friendlyError(code: string): string {
       return 'Invalid email or password.';
     case 'auth/invalid-email':
       return 'Please enter a valid email address.';
+    case 'auth/too-many-requests':
+      return 'Too many failed attempts. Please wait a moment and try again.';
+    case 'auth/user-disabled':
+      return 'This account has been disabled. Contact your administrator.';
+    case 'auth/operation-not-allowed':
+      return 'Sign-in with this method is not enabled. Contact your administrator.';
+    case 'auth/requires-recent-login':
+      return 'Please sign in again to complete this action.';
     case 'auth/network-request-failed':
       return 'Network error. Check your connection and try again.';
     default:
@@ -58,9 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider
-      value={{ user, loading, signIn, signOut: signOutUser }}
-    >
+    <AuthContext.Provider value={{ user, loading, signIn, signOut: signOutUser }}>
       {children}
     </AuthContext.Provider>
   );

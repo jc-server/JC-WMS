@@ -1,23 +1,36 @@
 import { useState, useEffect, useRef } from 'react';
 import { Wifi, WifiOff } from 'lucide-react';
 
+type Message = { type: 'offline' | 'online' } | null;
+
 export default function NetworkStatus() {
-  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
-  const [showNotification, setShowNotification] = useState<boolean>(false);
+  const [isOnline, setIsOnline] = useState<boolean>(() =>
+    typeof navigator === 'undefined' ? true : navigator.onLine
+  );
+  const [message, setMessage] = useState<Message>(() =>
+    typeof navigator === 'undefined' || navigator.onLine ? null : { type: 'offline' }
+  );
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    const clearTimer = () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+
     const handleOnline = () => {
       setIsOnline(true);
-      setShowNotification(true);
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setShowNotification(false), 3000);
+      setMessage({ type: 'online' });
+      clearTimer();
+      timerRef.current = setTimeout(() => setMessage(null), 3000);
     };
 
     const handleOffline = () => {
       setIsOnline(false);
-      setShowNotification(true);
-      if (timerRef.current) clearTimeout(timerRef.current);
+      setMessage({ type: 'offline' });
+      clearTimer();
     };
 
     window.addEventListener('online', handleOnline);
@@ -26,7 +39,7 @@ export default function NetworkStatus() {
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
-      if (timerRef.current) clearTimeout(timerRef.current);
+      clearTimer();
     };
   }, []);
 
@@ -42,23 +55,38 @@ export default function NetworkStatus() {
       >
         {isOnline ? (
           <>
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <Wifi className="w-3 h-3 hidden sm:inline" />
+            <span className="w-2 h-2 rounded-full bg-emerald-500" aria-hidden="true" />
+            <Wifi className="w-3 h-3 hidden sm:inline" aria-hidden="true" />
             <span className="hidden sm:inline">Online</span>
           </>
         ) : (
           <>
-            <span className="w-2 h-2 rounded-full bg-amber-500" />
-            <WifiOff className="w-3 h-3" />
+            <span className="w-2 h-2 rounded-full bg-amber-500" aria-hidden="true" />
+            <WifiOff className="w-3 h-3" aria-hidden="true" />
             <span>Offline</span>
           </>
         )}
       </div>
 
-      {showNotification && !isOnline && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 bg-amber-600 text-white px-4 py-2 rounded-xl shadow-lg text-xs font-semibold flex items-center gap-2">
-          <WifiOff className="w-4 h-4 animate-bounce" />
-          <span>You are offline. Changes will sync when reconnected.</span>
+      {message && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed top-16 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-xl shadow-lg text-xs font-semibold flex items-center gap-2 max-w-[90vw] ${
+            message.type === 'offline' ? 'bg-amber-600 text-white' : 'bg-emerald-600 text-white'
+          }`}
+        >
+          {message.type === 'offline' ? (
+            <>
+              <WifiOff className="w-4 h-4 animate-bounce" aria-hidden="true" />
+              <span>You are offline. Changes will sync when reconnected.</span>
+            </>
+          ) : (
+            <>
+              <Wifi className="w-4 h-4" aria-hidden="true" />
+              <span>Back online. Syncing changes.</span>
+            </>
+          )}
         </div>
       )}
     </div>
